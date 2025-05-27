@@ -105,31 +105,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Jitsi Meet Video Service
-  jitsi:
-    container_name: verification-jitsi
-    build:
-      context: ./containers/jitsi
-      containerfile: Containerfile
-    environment:
-      - JITSI_SECRET=${JITSI_SECRET}
-      - RECORDING_PATH=${JITSI_RECORDING_PATH}
-      - DOMAIN=${DOMAIN}
-    volumes:
-      - jitsi_recordings:/opt/jitsi/recordings
-      - jitsi_config:/opt/jitsi/config
-    ports:
-      - "${JITSI_PORT}:8080"
-      - "10000:10000/udp"  # RTP media
-    networks:
-      - verification-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   # React Frontend
   frontend:
     container_name: verification-frontend
@@ -174,7 +149,6 @@ services:
     depends_on:
       - frontend
       - api-http
-      - jitsi
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
@@ -193,10 +167,6 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local
-  jitsi_recordings:
-    driver: local
-  jitsi_config:
     driver: local
   nginx_logs:
     driver: local

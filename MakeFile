@@ -82,7 +82,7 @@ build: check-deps check-env
 	@echo "   3. Access the application at http://localhost"
 
 # Build specific container
-.PHONY: build-postgres build-redis build-nginx build-jitsi build-api build-frontend
+.PHONY: build-postgres build-redis build-nginx build-api build-frontend
 build-postgres: check-deps check-env
 	@echo "$(YELLOW)📦 Building PostgreSQL container...$(NC)"
 	@podman-compose build postgres
@@ -97,11 +97,6 @@ build-nginx: check-deps check-env
 	@echo "$(YELLOW)📦 Building Nginx container...$(NC)"
 	@podman-compose build nginx
 	@echo "$(GREEN)✅ Nginx container built$(NC)"
-
-build-jitsi: check-deps check-env
-	@echo "$(YELLOW)📦 Building Jitsi container...$(NC)"
-	@podman-compose build jitsi
-	@echo "$(GREEN)✅ Jitsi container built$(NC)"
 
 build-api: check-deps check-env
 	@echo "$(YELLOW)📦 Building API containers...$(NC)"
@@ -174,7 +169,6 @@ endpoints: check-env
 	@source $(ENV_FILE) && \
 	echo "   🌐 Frontend:     http://localhost:$${FRONTEND_PORT:-3000}"; \
 	echo "   🔌 HTTP API:     http://localhost:$${API_HTTP_PORT:-8001}"; \
-	echo "   🎥 Jitsi Meet:   http://localhost:$${JITSI_PORT:-8080}"; \
 	echo "   🗄️  PostgreSQL:  localhost:$${POSTGRES_PORT:-5432}"; \
 	echo "   🔴 Redis:        localhost:$${REDIS_PORT:-6379}"; \
 	if [ "$${USE_SSL:-false}" = "true" ]; then \
@@ -188,7 +182,7 @@ logs: check-deps
 	@podman-compose logs -f
 
 # View logs for specific service
-.PHONY: logs-postgres logs-redis logs-api-grpc logs-api-http logs-jitsi logs-frontend logs-nginx
+.PHONY: logs-postgres logs-redis logs-api-grpc logs-api-http logs-frontend logs-nginx
 logs-postgres: check-deps
 	@echo "$(BLUE)📋 PostgreSQL logs:$(NC)"
 	@podman-compose logs -f postgres
@@ -205,10 +199,6 @@ logs-api-http: check-deps
 	@echo "$(BLUE)📋 HTTP API logs:$(NC)"
 	@podman-compose logs -f api-http
 
-logs-jitsi: check-deps
-	@echo "$(BLUE)📋 Jitsi logs:$(NC)"
-	@podman-compose logs -f jitsi
-
 logs-frontend: check-deps
 	@echo "$(BLUE)📋 Frontend logs:$(NC)"
 	@podman-compose logs -f frontend
@@ -222,7 +212,7 @@ logs-nginx: check-deps
 health: check-deps
 	@echo "$(BLUE)🏥 Health Check Results:$(NC)"
 	@echo "========================"
-	@services="postgres redis api-grpc api-http jitsi frontend nginx"; \
+	@services="postgres redis api-grpc api-http frontend nginx"; \
 	for service in $$services; do \
 		container_name="verification-$$service"; \
 		if podman-compose ps | grep -q "$$container_name.*healthy"; then \
