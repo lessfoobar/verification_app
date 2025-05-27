@@ -1,0 +1,10 @@
+FROM quay.io/fedora/fedora:latest
+
+RUN dnf install -y postgresql-server postgresql-contrib && \
+    dnf clean all
+
+USER postgres
+RUN initdb -D /var/lib/postgresql/data
+
+EXPOSE 5432
+CMD ["postgres", "-D", "/var/lib/postgresql/data"]

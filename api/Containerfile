@@ -1,0 +1,32 @@
+FROM registry.fedoraproject.org/fedora:42 AS builder
+
+RUN dnf install -y golang git && \
+    dnf clean all
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o grpc-server ./cmd/grpc-server
+RUN CGO_ENABLED=0 GOOS=linux go build -o http-gateway ./cmd/http-gateway
+
+# gRPC Server target
+FROM registry.fedoraproject.org/fedora-minimal:42 AS grpc-server
+RUN microdnf install -y ca-certificates && \
+    microdnf clean all
+
+WORKDIR /app
+COPY --from=builder /app/grpc-server .
+EXPOSE 8000
+CMD ["./grpc-server"]
+
+# HTTP Gateway target
+FROM registry.fedoraproject.org/fedora-minimal:42 AS http-gateway
+RUN microdnf install -y ca-certificates curl && \
+    microdnf clean all
+
+WORKDIR /app
+COPY --from=builder /app/http-gateway .
+EXPOSE 8001
+CMD ["./http-gateway"]

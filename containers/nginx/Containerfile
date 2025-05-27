@@ -1,0 +1,9 @@
+FROM quay.io/fedora/fedora:latest
+
+RUN dnf install -y nginx && \
+    dnf clean all
+
+COPY nginx-proxy.conf /etc/nginx/nginx.conf
+
+EXPOSE 80 443
+CMD ["nginx", "-g", "daemon off;"]

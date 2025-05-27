@@ -59,7 +59,7 @@ verification-service/
 ├── README.md
 ├── .env.template
 ├── .env
-├── docker-compose.yml
+├── podman-compose.yml
 ├── build.sh
 ├── deploy.sh
 ├── containers/

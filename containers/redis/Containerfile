@@ -1,0 +1,8 @@
+FROM quay.io/fedora/fedora:latest
+
+RUN dnf install -y redis && \
+    dnf clean all
+
+EXPOSE 6379
+USER redis
+CMD ["redis-server", "--protected-mode", "no"]

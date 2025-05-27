@@ -1,0 +1,64 @@
+# Environment variables
+.env
+.env.*
+!.env-template
+
+# Certificates
+/certs
+certificates
+*.pem
+*.key
+*.crt
+*.cert
+*.csr
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Output of `go build`
+/bin/
+/build/
+/out/
+*.test
+
+# Dependency directories (if using vendoring)
+/vendor/
+
+# Go modules
+go.sum
+
+# Generated Protocol Buffer code
+*.pb.go
+*.pb.gw.go
+
+# Downloaded Proto files (Google standard protos)
+api/proto/google/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+test-logs
+
+# Test cache
+*.cover
+*.tmp
+
+# trunk
+.trunk
+
+# local
+*TODO*

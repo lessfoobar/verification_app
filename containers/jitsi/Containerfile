@@ -1,0 +1,10 @@
+FROM quay.io/fedora/fedora:latest
+
+RUN dnf install -y nodejs npm nginx && \
+    dnf clean all
+
+WORKDIR /opt/jitsi
+COPY jitsi-config.js ./config.js
+
+EXPOSE 8080
+CMD ["node", "server.js"]
