@@ -1,8 +1,26 @@
 FROM quay.io/fedora/fedora:latest
 
+# Install Redis
 RUN dnf install -y redis && \
     dnf clean all
 
+# Create redis user if it doesn't exist
+RUN if ! id redis &>/dev/null; then \
+        useradd -r -d /var/lib/redis -s /bin/false redis; \
+    fi
+
+# Create Redis configuration
+RUN mkdir -p /etc/redis /var/lib/redis /var/log/redis && \
+    chown -R redis:redis /var/lib/redis /var/log/redis
+
+# Copy custom Redis configuration
+COPY redis.conf /etc/redis/redis.conf
+RUN chown redis:redis /etc/redis/redis.conf
+
+# Set up data directory
+VOLUME ["/var/lib/redis"]
+
 EXPOSE 6379
+
 USER redis
-CMD ["redis-server", "--protected-mode", "no"]
+CMD ["redis-server", "/etc/redis/redis.conf"]
