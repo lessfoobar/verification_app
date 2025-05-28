@@ -9,19 +9,19 @@ LABEL description="PostgreSQL container with custom config and SSL certs"
 ENV PGDATA=/var/lib/pgsql/data
 ENV CERTS=/etc/ssl/postgresql
 
-
 # Create postgres user and group
 RUN dnf install -y postgresql-server postgresql-contrib && \
     dnf clean all && \
     rm -rf /var/cache/dnf && \
-    mkdir -p $PGDATA $CERTS /migrations && \
-    chown -R postgres:root $PGDATA $CERTS /migrations
+    mkdir -p $PGDATA $CERTS /migrations /configs && \
+    chown -R postgres:root $PGDATA $CERTS /migrations /configs
 
 # Copy initialization scripts, configurations and set permissions
 COPY --chown=root:root --chmod 644 certs/ca.crt /etc/ssl/ca.crt
-COPY --chown=postgres:root --chmod 644 certs/server.crt /etc/ssl/postgresql/
-COPY --chown=postgres:root --chmod 600 certs/server.key /etc/ssl/postgresql/
-COPY --chown=postgres:root --chmod 600 init-schema.sql pg_hba.conf postgres.conf /migrations
+COPY --chown=postgres:root --chmod 644 certs/server.crt $CERTS
+COPY --chown=postgres:root --chmod 600 certs/server.key $CERTS
+COPY --chown=postgres:root --chmod 600 pg_hba.conf postgres.conf /configs
+COPY --chown=postgres:root --chmod 600 migrations/ /migrations
 COPY --chown=root:postgres --chmod 750 entrypoint.sh /usr/local/bin/
 
 # Set the user
@@ -34,53 +34,7 @@ WORKDIR /var/lib/pgsql
 EXPOSE 5432
 
 # Define volume for persistent storage
-VOLUME ["/var/lib/pgsql/data"]
+VOLUME ["$PGDATA"]
 
 # Entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
-
-
-
-FROM quay.io/fedora/fedora:latest
-
-# Install PostgreSQL and OpenSSL
-RUN dnf install -y postgresql-server postgresql-contrib && \
-    dnf clean all && \
-    rm -rf /var/cache/dnf
-
-# Create directories with proper ownership
-RUN mkdir -p /var/lib/pgsql/data /var/lib/pgsql/certs /etc/postgresql && \
-    chown -R postgres:postgres /var/lib/postgresql /etc/postgresql && \
-    chmod 700 /var/lib/postgresql/certs
-
-# Copy configuration files
-COPY --chown=postgres:postgres postgresql.conf pg_hba.conf /etc/postgresql/
-
-# Copy initialization scripts
-COPY --chown=postgres:postgres init-schema.sql /entrypoint-initdb.d/
-
-# Copy TLS certificates (including CA)
-COPY --chown=postgres:postgres certs/ /var/lib/postgresql/certs/
-
-# Copy and set up entrypoint
-COPY --chown=postgres:postgres entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Set proper certificate permissions
-RUN chmod 644 /var/lib/postgresql/certs/*.crt && \
-    chmod 600 /var/lib/postgresql/certs/*.key
-
-# Set up data volume
-VOLUME ["/var/lib/pgsql/data"]
-
-# Switch to postgres user
-USER postgres
-WORKDIR /var/lib/pgsql
-
-# Expose PostgreSQL port
-EXPOSE 5432
-
-# Use entrypoint and default command
-ENTRYPOINT ["entrypoint.sh"]
-CMD ["postgres"]

@@ -11,7 +11,7 @@ A GDPR-compliant video-based identity verification service built as an NPO, prov
 │   Nginx Proxy   │    │  React Frontend │    │   Go gRPC API   │
 │   (Port 80/443) │────│   (Port 3000)   │────│  (Port 8000)    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
+                                                       │
 ┌─────────────────┐    ┌─────────────────┐             │
 │  OpenCV Face    │    │ HTTP Gateway    │─────────────┘
 │  Detection      │────│   (Port 8001)   │
