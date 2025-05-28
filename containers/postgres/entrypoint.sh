@@ -19,8 +19,8 @@ if [[ ! -s "${PGDATA}/PG_VERSION" ]]; then
 	echo "Initializing PostgreSQL database..."
 	/usr/bin/initdb --encoding=UTF-8 --lc-collate=C --lc-ctype=C --pgdata="${PGDATA}" --auth-local=peer --auth-host=scram-sha-256
 
-	cp /config/postgresql.conf "${PGDATA}/"
-	cp /config/pg_hba.conf "${PGDATA}/"
+	cp /configs/postgresql.conf "${PGDATA}/"
+	cp /configs/pg_hba.conf "${PGDATA}/"
 
 	need_init=true
 else
