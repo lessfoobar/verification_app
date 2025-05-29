@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 echo "🔐 Podman Secret Manager"
 echo "========================"
@@ -67,7 +67,7 @@ if [[ ${SHOW_INFO} == true ]]; then
 	echo "   • Use '--clean' to remove all generated secrets"
 	echo "   • Use '--regen <name>' to regenerate just one secret"
 	echo "   • Use '--regen all' to regenerate all secrets"
-	echo "   • Use '--length <N>' to override default length (default is 64)"
+	echo "   • Use '--length <N>' to override default length (default is 32)"
 	echo "   • Never commit secrets to version control"
 	echo ""
 fi
@@ -77,7 +77,13 @@ if [[ ${CLEAN} == true ]]; then
 	echo "🧹 Cleaning up all secrets..."
 	for name in "${!SECRETS[@]}"; do
 		if podman secret exists "${name}" 2>/dev/null; then
-			podman secret rm "${name}" >/dev/null && echo "❌ Deleted secret: ${name}"
+			secret_id=""
+			if secret_id=$(podman secret inspect "${name}" --format '{{.ID}}' 2>/dev/null); then
+				secret_id=$(echo "${secret_id}" | cut -c1-12)
+				podman secret rm "${name}" >/dev/null && echo "❌ Deleted secret: ${name} (ID: ${secret_id})"
+			else
+				podman secret rm "${name}" >/dev/null && echo "❌ Deleted secret: ${name}"
+			fi
 		fi
 	done
 	echo "✅ Cleanup complete!"
@@ -89,37 +95,60 @@ gen_secret() {
 	local prefix="$1"
 	local name="$2"
 	local length="${3:-${SECRET_LENGTH}}"
-	local should_regen=false
+	local should_create=false
+	local secret_id=""
 
+	# Determine if we should create/regenerate this secret
 	if [[ ${REGEN_ONE} == "all" || ${REGEN_ONE} == "${name}" ]]; then
-		should_regen=true
-	fi
-
-	# Skip if not regenerating and secret exists
-	if [[ ${should_regen} == true ]]; then
-		podman secret exists "${name}" 2>/dev/null && {
-			echo "♻️  Regenerating secret: ${name}"
-			podman secret rm "${name}" >/dev/null
-		}
+		# Force regeneration requested
+		should_create=true
+		if podman secret exists "${name}" 2>/dev/null; then
+			secret_id=""
+			if secret_id=$(podman secret inspect "${name}" --format '{{.ID}}' 2>/dev/null); then
+				secret_id=$(echo "${secret_id}" | cut -c1-12)
+				podman secret rm "${name}" >/dev/null && echo "♻️  Regenerating secret: ${name} (ID: ${secret_id})"
+			else
+				podman secret rm "${name}" >/dev/null && echo "♻️  Regenerating secret: ${name}"
+			fi
+		fi
+	elif [[ -z ${REGEN_ONE} ]]; then
+		# No regeneration specified - create if doesn't exist
+		if ! podman secret exists "${name}" 2>/dev/null; then
+			should_create=true
+		else
+			secret_id=""
+			if secret_id=$(podman secret inspect "${name}" --format '{{.ID}}' 2>/dev/null); then
+				secret_id=$(echo "${secret_id}" | cut -c1-12)
+				echo "✅ Secret already exists: ${name} (ID: ${secret_id})"
+				return 0
+			fi
+		fi
 	else
+		# Regenerating specific secret, but this isn't it
 		return 0
 	fi
 
-	local rand
-	rand=$(openssl rand -base64 "${length}")
-	local secret_value="${prefix:+${prefix}_}${rand}"
+	# Create the secret if needed
+	if [[ ${should_create} == true ]]; then
+		local rand
+		rand=$(openssl rand -base64 "${length}")
+		local secret_value="${prefix:+${prefix}_}${rand}"
 
-	if echo "${secret_value}" | podman secret create "${name}" -; then
-		echo "✅ Created secret: ${name}"
-	else
-		echo "❌ Failed to create secret: ${name}"
-		return 1
+		if secret_id=$(echo "${secret_value}" | podman secret create "${name}" - 2>/dev/null); then
+			secret_id=$(echo "${secret_id}" | cut -c1-12)
+			echo "✅ Created secret: ${name} (ID: ${secret_id})"
+		else
+			echo "❌ Failed to create secret: ${name}"
+			return 1
+		fi
 	fi
 }
 
-# Main loop
+# Main loop - create all secrets
+echo "🔧 Processing secrets..."
 for name in "${!SECRETS[@]}"; do
 	gen_secret "${SECRETS[${name}]}" "${name}" "${SECRET_LENGTH}"
 done
 
 echo ""
+echo "✅ All secrets processed successfully!"

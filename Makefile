@@ -4,8 +4,8 @@
 # Configuration
 PROJECT_NAME := verification-service
 COMPOSE_FILE := podman-compose.yml
-DOMAIN ?= testing.local
-SSL_EMAIL ?= admin@testing.local
+DOMAIN ?= localhost
+SSL_EMAIL ?= admin@localhost
 
 # Colors for output - use tput for better compatibility
 RED := $(shell tput setaf 1 2>/dev/null)
@@ -85,38 +85,37 @@ check-deps: config-check ## Check required dependencies
 # Certificate Management
 # =============================================================================
 
+# Define a function to get the CA password
+define get_ca_pass
+SECRETS_PATH=$$(podman secret inspect ca_password --format '{{ .Spec.Driver.Options.path }}' 2>/dev/null || echo "/run/secrets"); \
+SECRET_ID=$$(podman secret inspect --format '{{.ID}}' ca_password 2>/dev/null); \
+CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.json" 2>/dev/null | base64 --decode 2>/dev/null || echo "changeit");
+endef
+
 .PHONY: certs
-certs: check-deps secrets
-	@echo "$(BLUE)🔐 Generating SSL certificates...$(RESET)"
-	@mkdir -p $(CERTS_DIR) $(POSTGRES_CERTS_DIR) $(NGINX_CERTS_DIR)
-	@$(MAKE) certs-ca
-	@$(MAKE) certs-postgres
-	@$(MAKE) certs-nginx
+certs: check-deps secrets certs-ca certs-postgres certs-nginx
 	@echo "$(GREEN)✅ All certificates generated$(RESET)"
 
 .PHONY: certs-ca
-certs-ca: secrets
+certs-ca: ## Generate Certificate Authority
 	@echo "$(BLUE)🏛️  Generating Certificate Authority...$(RESET)"
+	@mkdir -p $(CERTS_DIR)
 	@if [ ! -f $(CERTS_DIR)/CA/ca.key ] || [ ! -f $(CERTS_DIR)/CA/ca.crt ]; then \
 		echo "$(YELLOW)Creating CA certificates...$(RESET)"; \
-		SECRETS_PATH=$$(podman secret inspect ca_password --format '{{ .Spec.Driver.Options.path }}' 2>/dev/null || echo "/run/secrets"); \
-		SECRET_ID=$$(podman secret inspect --format '{{.ID}}' ca_password 2>/dev/null); \
-		CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.json" 2>/dev/null | base64 --decode 2>/dev/null || echo "changeit"); \
+		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh --ca-only -p "$$CA_PASS" -d "$(DOMAIN)"; \
 	else \
 		echo "$(GREEN)✅ CA certificates already exist$(RESET)"; \
 	fi
 
 .PHONY: certs-postgres
-certs-postgres: certs-ca ## Generate PostgreSQL certificates
+certs-postgres: ## Generate PostgreSQL certificates
 	@echo "$(BLUE)🗄️  Generating PostgreSQL certificates...$(RESET)"
+	@mkdir -p $(POSTGRES_CERTS_DIR)
 	@if [ ! -f $(POSTGRES_CERTS_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating PostgreSQL server certificates...$(RESET)"; \
-		SECRETS_PATH=$$(podman secret inspect ca_password --format '{{ .Spec.Driver.Options.path }}' 2>/dev/null || echo "/run/secrets"); \
-		SECRET_ID=$$(podman secret inspect --format '{{.ID}}' ca_password 2>/dev/null); \
-		CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.json" 2>/dev/null | base64 --decode 2>/dev/null || echo "changeit"); \
+		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh -p "$$CA_PASS" -d "$(DOMAIN)" --service postgres; \
-		mkdir -p $(POSTGRES_CERTS_DIR); \
 		cp $(CERTS_DIR)/postgres/server.* $(POSTGRES_CERTS_DIR)/; \
 		cp $(CERTS_DIR)/CA/ca.crt $(POSTGRES_CERTS_DIR)/; \
 	else \
@@ -124,19 +123,13 @@ certs-postgres: certs-ca ## Generate PostgreSQL certificates
 	fi
 
 .PHONY: certs-nginx
-certs-nginx: certs-ca ## Generate Nginx certificates
+certs-nginx: ## Generate Nginx certificates
 	@echo "$(BLUE)🌐 Generating Nginx certificates...$(RESET)"
+	@mkdir -p $(NGINX_CERTS_DIR)
 	@if [ ! -f $(NGINX_CERTS_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating Nginx server certificates...$(RESET)"; \
-		SECRETS_PATH=$$(podman secret inspect ca_password --format '{{ .Spec.Driver.Options.path }}' 2>/dev/null || echo "/run/secrets"); \
-		if [ -f "$$SECRETS_PATH/ca_password" ]; then \
-			CA_PASS=$$(cat "$$SECRETS_PATH/ca_password"); \
-		else \
-			SECRET_ID=$$(podman secret inspect --format '{{.ID}}' ca_password 2>/dev/null); \
-			CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.json" 2>/dev/null | base64 --decode 2>/dev/null || echo "changeit"); \
-		fi; \
+		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh --domain "$(DOMAIN)" --ca-pass "$$CA_PASS" --service nginx; \
-		mkdir -p $(NGINX_CERTS_DIR); \
 		cp $(CERTS_DIR)/nginx/server.* $(NGINX_CERTS_DIR)/; \
 		cp $(CERTS_DIR)/CA/ca.crt $(NGINX_CERTS_DIR)/; \
 	else \
