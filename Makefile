@@ -117,7 +117,7 @@ certs-postgres: certs-ca ## Generate PostgreSQL certificates
 		CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.json" 2>/dev/null | base64 --decode 2>/dev/null || echo "changeit"); \
 		bash generate_ca_csr_crt.sh -p "$$CA_PASS" -d "$(DOMAIN)" --service postgres; \
 		mkdir -p $(POSTGRES_CERTS_DIR); \
-		cp $(CERTS_DIR)/$(DOMAIN)/server.* $(POSTGRES_CERTS_DIR)/; \
+		cp $(CERTS_DIR)/postgres/server.* $(POSTGRES_CERTS_DIR)/; \
 		cp $(CERTS_DIR)/CA/ca.crt $(POSTGRES_CERTS_DIR)/; \
 	else \
 		echo "$(GREEN)✅ PostgreSQL certificates already exist$(RESET)"; \
@@ -137,7 +137,7 @@ certs-nginx: certs-ca ## Generate Nginx certificates
 		fi; \
 		bash generate_ca_csr_crt.sh --domain "$(DOMAIN)" --ca-pass "$$CA_PASS" --service nginx; \
 		mkdir -p $(NGINX_CERTS_DIR); \
-		cp $(CERTS_DIR)/$(DOMAIN)/server.* $(NGINX_CERTS_DIR)/; \
+		cp $(CERTS_DIR)/nginx/server.* $(NGINX_CERTS_DIR)/; \
 		cp $(CERTS_DIR)/CA/ca.crt $(NGINX_CERTS_DIR)/; \
 	else \
 		echo "$(GREEN)✅ Nginx certificates already exist$(RESET)"; \
@@ -167,7 +167,7 @@ secrets-list: ## List all podman secrets
 .PHONY: secrets-clean
 secrets-clean: ## Remove all podman secrets
 	@echo "$(YELLOW)🗑️  Removing all secrets...$(RESET)"
-	@podman secret ls -q | xargs -r podman secret rm
+	@bash secret.sh --clean
 	@echo "$(GREEN)✅ All secrets removed$(RESET)"
 
 # =============================================================================
