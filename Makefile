@@ -18,7 +18,7 @@ ifneq ($(MAKECMDGOALS),info)
 ifneq ($(MAKECMDGOALS),env-template)
 ifneq ($(MAKECMDGOALS),check-config)
     ifeq (,$(wildcard .env))
-        $(error $(RED)❌ .env file is required but missing!$(RESET)$(shell echo "\n")$(YELLOW)⚠️  Please run 'make env-template' first to create it.$(RESET))
+        $(error $(RED)❌ .env file is required but missing!$(RESET)$(shell echo "\n")$(YELLOW)⚠️  Please run 'make check-config' first to create it.$(RESET))
     endif
     include .env
     export
@@ -37,7 +37,7 @@ endif
 .PHONY: help
 help: ## Show this help message
 	@echo "$(CYAN)========================================$(RESET)"
-	@echo "$(CYAN)  Video Verification Service - Make     $(RESET)"
+	@echo "$(CYAN)  q Verification Service - Make     $(RESET)"
 	@echo "$(CYAN)========================================$(RESET)"
 	@echo ""
 	@echo "$(YELLOW)📋 Available commands:$(RESET)"
@@ -116,13 +116,13 @@ certs-ca: ## Generate Certificate Authority
 .PHONY: certs-postgres
 certs-postgres: ## Generate PostgreSQL certificates
 	@echo "$(BLUE)🗄️  Generating PostgreSQL certificates...$(RESET)"
-	@mkdir -p $(POSTGRES_CERTS_BASE_DIR)
-	@if [ ! -f $(POSTGRES_CERTS_BASE_DIR)/server.crt ]; then \
+	@mkdir -p $(POSTGRES_CERTS_DIR)
+	@if [ ! -f $(POSTGRES_CERTS_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating PostgreSQL server certificates...$(RESET)"; \
 		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh -p "$$CA_PASS" -d "$(DOMAIN)" --service postgres; \
-		cp $(CERTS_BASE_DIR)/postgres/server.* $(POSTGRES_CERTS_BASE_DIR)/; \
-		cp $(CERTS_BASE_DIR)/CA/ca.crt $(POSTGRES_CERTS_BASE_DIR)/; \
+		cp $(CERTS_BASE_DIR)/postgres/server.* $(POSTGRES_CERTS_DIR)/; \
+		cp $(CERTS_BASE_DIR)/CA/ca.crt $(POSTGRES_CERTS_DIR)/; \
 	else \
 		echo "$(GREEN)✅ PostgreSQL certificates already exist$(RESET)"; \
 	fi
@@ -130,13 +130,13 @@ certs-postgres: ## Generate PostgreSQL certificates
 .PHONY: certs-nginx
 certs-nginx: ## Generate Nginx certificates
 	@echo "$(BLUE)🌐 Generating Nginx certificates...$(RESET)"
-	@mkdir -p $(NGINX_CERTS_BASE_DIR)
-	@if [ ! -f $(NGINX_CERTS_BASE_DIR)/server.crt ]; then \
+	@mkdir -p $(NGINX_CERTS_DIR)
+	@if [ ! -f $(NGINX_CERTS_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating Nginx server certificates...$(RESET)"; \
 		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh --domain "$(DOMAIN)" --ca-pass "$$CA_PASS" --service nginx; \
-		cp $(CERTS_BASE_DIR)/nginx/server.* $(NGINX_CERTS_BASE_DIR)/; \
-		cp $(CERTS_BASE_DIR)/CA/ca.crt $(NGINX_CERTS_BASE_DIR)/; \
+		cp $(CERTS_BASE_DIR)/nginx/server.* $(NGINX_CERTS_DIR)/; \
+		cp $(CERTS_BASE_DIR)/CA/ca.crt $(NGINX_CERTS_DIR)/; \
 	else \
 		echo "$(GREEN)✅ Nginx certificates already exist$(RESET)"; \
 	fi
@@ -144,7 +144,7 @@ certs-nginx: ## Generate Nginx certificates
 .PHONY: certs-clean
 certs-clean: ## Remove all certificates
 	@echo "$(YELLOW)🗑️  Removing all certificates...$(RESET)"
-	@rm -rf $(CERTS_BASE_DIR) $(POSTGRES_CERTS_BASE_DIR) $(NGINX_CERTS_BASE_DIR)
+	@rm -rf $(CERTS_BASE_DIR) $(POSTGRES_CERTS_DIR) $(NGINX_CERTS_DIR)
 	@echo "$(GREEN)✅ All certificates removed$(RESET)"
 
 # =============================================================================
@@ -173,13 +173,13 @@ secrets-clean: ## Remove all podman secrets
 # =============================================================================
 
 .PHONY: build
-build: certs secrets ## Build all container images
+build: certs ## Build all container images
 	@echo "$(BLUE)🏗️  Building all services...$(RESET)"
 	@podman-compose -f $(COMPOSE_FILE) build
 	@echo "$(GREEN)✅ All services built successfully$(RESET)"
 
 .PHONY: build-postgres
-build-postgres: certs-postgres secrets ## Build PostgreSQL service
+build-postgres: certs ## Build PostgreSQL service
 	@echo "$(BLUE)🗄️  Building PostgreSQL service...$(RESET)"
 	@podman-compose -f $(COMPOSE_FILE) build postgres
 	@echo "$(GREEN)✅ PostgreSQL service built$(RESET)"
@@ -487,8 +487,8 @@ prod-check: ## Production readiness check
 	@grep -q "ENVIRONMENT=production" .env || echo "$(YELLOW)⚠️  Consider setting ENVIRONMENT=production$(RESET)"
 	@grep -q "DEBUG=false" .env || echo "$(YELLOW)⚠️  Consider setting DEBUG=false$(RESET)"
 	@grep -q "USE_SSL=true" .env || echo "$(YELLOW)⚠️  Consider enabling SSL for production$(RESET)"
-	@test -f $(POSTGRES_CERTS_BASE_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
-	@test -f $(NGINX_CERTS_BASE_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
+	@test -f $(POSTGRES_CERTS_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
+	@test -f $(NGINX_CERTS_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
 	@echo "$(GREEN)✅ Production check completed$(RESET)"
 
 # Force targets to always run
