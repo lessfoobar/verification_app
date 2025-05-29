@@ -9,7 +9,6 @@ LABEL stage=builder
 RUN dnf update -y && \
     dnf install -y \
         python3.12 \
-        python3.12-pip \
         python3.12-devel \
         gcc \
         gcc-c++ \
@@ -17,8 +16,6 @@ RUN dnf update -y && \
         pkg-config \
         opencv \
         opencv-devel \
-        python3.12-opencv \
-        python3.12-numpy
         curl \
         wget \
         unzip \
@@ -30,7 +27,7 @@ RUN dnf update -y && \
         lapack-devel
 # Set Python 3.12 as default python3
 RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.12 1
+    python3 -m ensurepip --upgrade
 
 # Verify Python version
 RUN python3 --version && pip3 --version
@@ -65,10 +62,7 @@ LABEL version="1.0.0"
 RUN dnf update -y && \
     dnf install -y \
         python3.12 \
-        python3.12-pip \
         opencv \
-        python3.12-opencv \
-        python3.12-numpy \
         libgomp \
         curl \
         glib2 \
@@ -81,7 +75,7 @@ RUN dnf update -y && \
 
 # Set Python 3.12 as default python3
 RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.12 1
+    python3 -m ensurepip --upgrade
 
 # Create non-root user and directories
 RUN useradd -r -s /bin/false -m opencv-service && \
