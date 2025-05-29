@@ -5,7 +5,7 @@ FROM quay.io/fedora/fedora:latest as builder
 
 LABEL stage=builder
 
-# Install build dependencies and runtime Python libraries
+# Install build dependencies
 RUN dnf update -y && \
     dnf install -y \
         python3 \
@@ -23,9 +23,13 @@ RUN dnf update -y && \
         wget \
         unzip \
         libgomp \
-        glib2-devel
+        glib2-devel \
+        libstdc++-devel \
+        atlas-devel \
+        blas-devel \
+        lapack-devel
 
-# Create working directories
+# Create working directory
 WORKDIR /app
 
 # Copy requirements and install Python packages
@@ -34,9 +38,9 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
     pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY --chown=opencv-service:opencv-service --chmod=500 *.py ./
+COPY *.py ./
 
-# Create and run model test script
+# Run model preparation and testing
 RUN python3 test_models.py
 
 # -------------------------------
@@ -47,6 +51,7 @@ FROM quay.io/fedora/fedora:latest
 # Metadata
 LABEL maintainer="verification-service@example.com"
 LABEL description="Production Face Detection + Liveness Verification Service"
+LABEL version="1.0.0"
 
 # Install runtime dependencies only
 RUN dnf update -y && \
@@ -58,21 +63,32 @@ RUN dnf update -y && \
         python3-numpy \
         libgomp \
         curl \
-        glib2 && \
-    dnf clean all
+        glib2 \
+        libstdc++ \
+        atlas \
+        blas \
+        lapack && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
 
-# Create non-root user and app directory
-RUN useradd -r -s /bin/false opencv-service && \
+# Create non-root user and directories
+RUN useradd -r -s /bin/false -m opencv-service && \
     mkdir -p /app && \
     chown -R opencv-service:opencv-service /app
 
 WORKDIR /app
 
-# Copy only needed artifacts from builder
-COPY --from=builder /app /app
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements.txt
 
-# Ensure ownership
-RUN chown -R opencv-service:opencv-service /app
+# Copy application and models from builder
+COPY --from=builder /app /app
+COPY --from=builder /root/.insightface /home/opencv-service/.insightface
+COPY --from=builder /root/.cache /home/opencv-service/.cache
+
+# Ensure proper ownership
+RUN chown -R opencv-service:opencv-service /app /home/opencv-service
 
 # Switch to non-root user
 USER opencv-service
@@ -82,9 +98,20 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV GLOG_minloglevel=2
 ENV OMP_NUM_THREADS=4
+ENV OPENCV_LOG_LEVEL=ERROR
+ENV MEDIAPIPE_DISABLE_GPU=1
+
+# Performance optimizations
+ENV OPENBLAS_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+ENV NUMEXPR_NUM_THREADS=4
+
+# Model cache locations
+ENV INSIGHTFACE_HOME=/home/opencv-service/.insightface
+ENV MEDIAPIPE_CACHE_DIR=/home/opencv-service/.cache/mediapipe
 
 # Expose port
 EXPOSE 8002
 
-# Run app
+# Run application
 CMD ["python3", "face_detection.py"]
