@@ -8,17 +8,17 @@ LABEL stage=builder
 # Install build dependencies
 RUN dnf update -y && \
     dnf install -y \
-        python3 \
-        python3-pip \
-        python3-devel \
+        python3.12 \
+        python3.12-pip \
+        python3.12-devel \
         gcc \
         gcc-c++ \
         cmake \
         pkg-config \
         opencv \
         opencv-devel \
-        python3-opencv \
-        python3-numpy \
+        python3.12-opencv \
+        python3.12-numpy
         curl \
         wget \
         unzip \
@@ -28,14 +28,22 @@ RUN dnf update -y && \
         atlas-devel \
         blas-devel \
         lapack-devel
+# Set Python 3.12 as default python3
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.12 1
+
+# Verify Python version
+RUN python3 --version && pip3 --version
 
 # Create working directory
 WORKDIR /app
 
 # Copy requirements and install Python packages
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip3 install --no-cache-dir -r requirements.txt
+
+# Upgrade pip and install packages
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY *.py ./
@@ -56,11 +64,11 @@ LABEL version="1.0.0"
 # Install runtime dependencies only
 RUN dnf update -y && \
     dnf install -y \
-        python3 \
-        python3-pip \
+        python3.12 \
+        python3.12-pip \
         opencv \
-        python3-opencv \
-        python3-numpy \
+        python3.12-opencv \
+        python3.12-numpy \
         libgomp \
         curl \
         glib2 \
@@ -71,6 +79,10 @@ RUN dnf update -y && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
+# Set Python 3.12 as default python3
+RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.12 1
+
 # Create non-root user and directories
 RUN useradd -r -s /bin/false -m opencv-service && \
     mkdir -p /app && \
@@ -78,14 +90,15 @@ RUN useradd -r -s /bin/false -m opencv-service && \
 
 WORKDIR /app
 
+# Copy requirements and install packages
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Copy application and models from builder
 COPY --from=builder /app /app
-COPY --from=builder /root/.insightface /home/opencv-service/.insightface
-COPY --from=builder /root/.cache /home/opencv-service/.cache
+COPY --from=builder /home/opencv-service/.insightface /home/opencv-service/.insightface 2>/dev/null || true
+COPY --from=builder /home/opencv-service/.cache /home/opencv-service/.cache 2>/dev/null || true
 
 # Ensure proper ownership
 RUN chown -R opencv-service:opencv-service /app /home/opencv-service
