@@ -9,6 +9,7 @@ echo "====================================================="
 gen_secret() {
 	local prefix="$1"
 	local name="$2"
+	local length="${3:-32}"
 
 	# Check if secret already exists
 	if podman secret exists "${name}" 2>/dev/null; then
@@ -18,8 +19,15 @@ gen_secret() {
 
 	# Generate random secret
 	local rand=""
-  rand=$(openssl rand -hex 32)
-	local secret_value="${prefix}_${rand}"
+	rand=$(openssl rand -base64 "${length}")
+
+  # Conditionally add prefix
+  local secret_value=""
+  if [[ -n "${prefix}" ]]; then
+    secret_value="${prefix}_${rand}"
+  else
+    secret_value="${rand}"
+  fi
 
 	# Create the secret
 	if echo "${secret_value}" | podman secret create "${name}" -; then
@@ -29,6 +37,11 @@ gen_secret() {
 		return 1
 	fi
 }
+
+# Generate CA password first (used by certificate generation)
+echo ""
+echo "📋 Generating CA password..."
+gen_secret "" "ca_password"
 
 # Generate database passwords (these need to be secure)
 echo ""
@@ -57,6 +70,10 @@ podman secret ls
 echo ""
 echo "⚠️  IMPORTANT SECURITY NOTES:"
 echo "   • These secrets are stored securely in Podman"
+echo "   • CA password is randomly generated (64 characters)"
+echo "   • Database passwords are randomly generated (64 characters)"
+echo "   • Application secrets are randomly generated (64 characters)"
 echo "   • Never commit secrets to version control"
 echo "   • In production, use a proper secret management system"
 echo "   • Rotate secrets regularly"
+echo ""

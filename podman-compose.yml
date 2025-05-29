@@ -61,7 +61,7 @@ services:
       - verification-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      test: ["CMD", "python3", "/app/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
