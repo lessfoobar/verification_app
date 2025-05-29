@@ -1,11 +1,6 @@
 # Video Verification Service - Makefile
 # ====================================
 
-# Configuration
-PROJECT_NAME := verification-service
-COMPOSE_FILE := podman-compose.yml
-DOMAIN ?= localhost
-SSL_EMAIL ?= admin@localhost
 
 # Colors for output - use tput for better compatibility
 RED := $(shell tput setaf 1 2>/dev/null)
@@ -17,10 +12,20 @@ CYAN := $(shell tput setaf 6 2>/dev/null)
 WHITE := $(shell tput setaf 7 2>/dev/null)
 RESET := $(shell tput sgr0 2>/dev/null)
 
-# Certificate directories
-CERTS_DIR := certificates
-POSTGRES_CERTS_DIR := containers/postgres/certs
-NGINX_CERTS_DIR := containers/nginx/certs
+# Only load .env if we're not running env-template or help
+ifneq ($(MAKECMDGOALS),help)
+ifneq ($(MAKECMDGOALS),info)
+ifneq ($(MAKECMDGOALS),env-template)
+ifneq ($(MAKECMDGOALS),check-config)
+    ifeq (,$(wildcard .env))
+        $(error $(RED)❌ .env file is required but missing!$(RESET)$(shell echo "\n")$(YELLOW)⚠️  Please run 'make env-template' first to create it.$(RESET))
+    endif
+    include .env
+    export
+endif
+endif
+endif
+endif
 
 # Default target
 .DEFAULT_GOAL := help
@@ -72,7 +77,7 @@ info: ## Show project information
 # =============================================================================
 
 .PHONY: check-deps
-check-deps: config-check ## Check required dependencies
+check-deps: ## Check required dependencies
 	@echo "$(BLUE)🔍 Checking dependencies...$(RESET)"
 	@command -v podman >/dev/null 2>&1 || { echo "$(RED)❌ podman is required but not installed$(RESET)"; exit 1; }
 	@command -v podman-compose >/dev/null 2>&1 || { echo "$(RED)❌ podman-compose is required but not installed$(RESET)"; exit 1; }
@@ -93,14 +98,14 @@ CA_PASS=$$(jq -r --arg id "$$SECRET_ID" '.[$$id]' "$$SECRETS_PATH/secretsdata.js
 endef
 
 .PHONY: certs
-certs: check-deps secrets certs-ca certs-postgres certs-nginx
+certs: check-config secrets certs-ca certs-postgres certs-nginx
 	@echo "$(GREEN)✅ All certificates generated$(RESET)"
 
 .PHONY: certs-ca
 certs-ca: ## Generate Certificate Authority
 	@echo "$(BLUE)🏛️  Generating Certificate Authority...$(RESET)"
-	@mkdir -p $(CERTS_DIR)
-	@if [ ! -f $(CERTS_DIR)/CA/ca.key ] || [ ! -f $(CERTS_DIR)/CA/ca.crt ]; then \
+	@mkdir -p $(CERTS_BASE_DIR)
+	@if [ ! -f $(CERTS_BASE_DIR)/CA/ca.key ] || [ ! -f $(CERTS_BASE_DIR)/CA/ca.crt ]; then \
 		echo "$(YELLOW)Creating CA certificates...$(RESET)"; \
 		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh --ca-only -p "$$CA_PASS" -d "$(DOMAIN)"; \
@@ -111,13 +116,13 @@ certs-ca: ## Generate Certificate Authority
 .PHONY: certs-postgres
 certs-postgres: ## Generate PostgreSQL certificates
 	@echo "$(BLUE)🗄️  Generating PostgreSQL certificates...$(RESET)"
-	@mkdir -p $(POSTGRES_CERTS_DIR)
-	@if [ ! -f $(POSTGRES_CERTS_DIR)/server.crt ]; then \
+	@mkdir -p $(POSTGRES_CERTS_BASE_DIR)
+	@if [ ! -f $(POSTGRES_CERTS_BASE_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating PostgreSQL server certificates...$(RESET)"; \
 		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh -p "$$CA_PASS" -d "$(DOMAIN)" --service postgres; \
-		cp $(CERTS_DIR)/postgres/server.* $(POSTGRES_CERTS_DIR)/; \
-		cp $(CERTS_DIR)/CA/ca.crt $(POSTGRES_CERTS_DIR)/; \
+		cp $(CERTS_BASE_DIR)/postgres/server.* $(POSTGRES_CERTS_BASE_DIR)/; \
+		cp $(CERTS_BASE_DIR)/CA/ca.crt $(POSTGRES_CERTS_BASE_DIR)/; \
 	else \
 		echo "$(GREEN)✅ PostgreSQL certificates already exist$(RESET)"; \
 	fi
@@ -125,13 +130,13 @@ certs-postgres: ## Generate PostgreSQL certificates
 .PHONY: certs-nginx
 certs-nginx: ## Generate Nginx certificates
 	@echo "$(BLUE)🌐 Generating Nginx certificates...$(RESET)"
-	@mkdir -p $(NGINX_CERTS_DIR)
-	@if [ ! -f $(NGINX_CERTS_DIR)/server.crt ]; then \
+	@mkdir -p $(NGINX_CERTS_BASE_DIR)
+	@if [ ! -f $(NGINX_CERTS_BASE_DIR)/server.crt ]; then \
 		echo "$(YELLOW)Creating Nginx server certificates...$(RESET)"; \
 		$(get_ca_pass) \
 		bash generate_ca_csr_crt.sh --domain "$(DOMAIN)" --ca-pass "$$CA_PASS" --service nginx; \
-		cp $(CERTS_DIR)/nginx/server.* $(NGINX_CERTS_DIR)/; \
-		cp $(CERTS_DIR)/CA/ca.crt $(NGINX_CERTS_DIR)/; \
+		cp $(CERTS_BASE_DIR)/nginx/server.* $(NGINX_CERTS_BASE_DIR)/; \
+		cp $(CERTS_BASE_DIR)/CA/ca.crt $(NGINX_CERTS_BASE_DIR)/; \
 	else \
 		echo "$(GREEN)✅ Nginx certificates already exist$(RESET)"; \
 	fi
@@ -139,7 +144,7 @@ certs-nginx: ## Generate Nginx certificates
 .PHONY: certs-clean
 certs-clean: ## Remove all certificates
 	@echo "$(YELLOW)🗑️  Removing all certificates...$(RESET)"
-	@rm -rf $(CERTS_DIR) $(POSTGRES_CERTS_DIR) $(NGINX_CERTS_DIR)
+	@rm -rf $(CERTS_BASE_DIR) $(POSTGRES_CERTS_BASE_DIR) $(NGINX_CERTS_BASE_DIR)
 	@echo "$(GREEN)✅ All certificates removed$(RESET)"
 
 # =============================================================================
@@ -147,7 +152,7 @@ certs-clean: ## Remove all certificates
 # =============================================================================
 
 .PHONY: secrets
-secrets: check-deps ## Generate and install all secrets
+secrets: check-config ## Generate and install all secrets
 	@echo "$(BLUE)🔐 Installing secrets...$(RESET)"
 	@bash secret.sh
 	@echo "$(GREEN)✅ All secrets installed$(RESET)"
@@ -168,7 +173,7 @@ secrets-clean: ## Remove all podman secrets
 # =============================================================================
 
 .PHONY: build
-build: check-deps certs secrets ## Build all container images
+build: certs secrets ## Build all container images
 	@echo "$(BLUE)🏗️  Building all services...$(RESET)"
 	@podman-compose -f $(COMPOSE_FILE) build
 	@echo "$(GREEN)✅ All services built successfully$(RESET)"
@@ -229,7 +234,7 @@ stop: ## Stop all services
 .PHONY: down
 down: ## Stop and remove all containers
 	@echo "$(YELLOW)⬇️  Stopping and removing all containers...$(RESET)"
-	@podman-compose -f $(COMPOSE_FILE) down
+	@podman-compose -f $(COMPOSE_FILE) down 2>/dev/null || true
 	@echo "$(GREEN)✅ All containers stopped and removed$(RESET)"
 
 .PHONY: restart
@@ -379,16 +384,17 @@ test-integration: ## Run integration tests
 .PHONY: clean
 clean: ## Clean containers and volumes
 	@echo "$(YELLOW)🧹 Cleaning containers and volumes...$(RESET)"
-	@podman-compose -f $(COMPOSE_FILE) down -v
-	@podman system prune -f
+	@podman-compose -f $(COMPOSE_FILE) down -v 2>/dev/null || true
+	@podman system prune -f 2>/dev/null || true
 	@echo "$(GREEN)✅ Cleanup completed$(RESET)"
 
 .PHONY: clean-all
 clean-all: down secrets-clean certs-clean ## Complete cleanup (containers, secrets, certificates)
 	@echo "$(YELLOW)🧹 Complete cleanup...$(RESET)"
 	@podman-compose -f $(COMPOSE_FILE) down -v --rmi all 2>/dev/null || true
-	@podman system prune -af
-	@podman volume prune -f
+	@podman system prune -af 2>/dev/null || true
+	@podman volume prune -f 2>/dev/null || true
+	@rm -f .env
 	@echo "$(GREEN)✅ Complete cleanup finished$(RESET)"
 
 .PHONY: clean-images
@@ -453,10 +459,9 @@ monitor: ## Monitor all services (requires watch)
 # Configuration
 # =============================================================================
 
-.PHONY: config-check
-config-check: ## Check configuration files
+.PHONY: check-config
+check-config: env-template check-deps ## Check configuration files
 	@echo "$(BLUE)🔍 Checking configuration files...$(RESET)"
-	@test -f .env && echo "$(GREEN)✅ .env file exists$(RESET)" || echo "$(YELLOW)⚠️  .env file missing - copy from .env-template$(RESET)"
 	@test -f $(COMPOSE_FILE) && echo "$(GREEN)✅ compose file exists$(RESET)" || echo "$(RED)❌ $(COMPOSE_FILE) missing$(RESET)"
 	@test -f secret.sh && echo "$(GREEN)✅ secret script exists$(RESET)" || echo "$(RED)❌ secret.sh missing$(RESET)"
 	@test -f generate_ca_csr_crt.sh && echo "$(GREEN)✅ generate_ca_csr_crt script exists$(RESET)" || echo "$(RED)❌ generate_ca_csr_crt.sh missing$(RESET)"
@@ -482,10 +487,10 @@ prod-check: ## Production readiness check
 	@grep -q "ENVIRONMENT=production" .env || echo "$(YELLOW)⚠️  Consider setting ENVIRONMENT=production$(RESET)"
 	@grep -q "DEBUG=false" .env || echo "$(YELLOW)⚠️  Consider setting DEBUG=false$(RESET)"
 	@grep -q "USE_SSL=true" .env || echo "$(YELLOW)⚠️  Consider enabling SSL for production$(RESET)"
-	@test -f $(POSTGRES_CERTS_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
-	@test -f $(NGINX_CERTS_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
+	@test -f $(POSTGRES_CERTS_BASE_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
+	@test -f $(NGINX_CERTS_BASE_DIR)/server.crt || echo "$(YELLOW)⚠️  PostgreSQL SSL certificates missing$(RESET)"
 	@echo "$(GREEN)✅ Production check completed$(RESET)"
 
 # Force targets to always run
 .PHONY: help info check-deps certs secrets build start stop down restart status logs
-.PHONY: test-all clean clean-all dev-setup config-check prod-check
+.PHONY: test-all clean clean-all dev-setup check-config prod-check

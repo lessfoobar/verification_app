@@ -2,11 +2,10 @@
 
 set -e
 
-# Default values
-DEFAULT_DOMAIN="localhost"
-DEFAULT_CA_PASS="changeit"
-CERTS_BASE_DIR="certificates"
-CA_DIR="${CERTS_BASE_DIR}/CA"
+# Configuration
+if [[ -f .env ]]; then
+  source .env
+fi
 
 # Colors for output
 RED="$(tput setaf 1 2>/dev/null)"
@@ -42,7 +41,7 @@ usage() {
 
 # Parse command line arguments
 DOMAIN="${DEFAULT_DOMAIN}"
-CA_PASS="${DEFAULT_CA_PASS}"
+CA_PASS="${CA_PASSWORD}"
 OUTPUT_DIR="${CERTS_BASE_DIR}"
 CA_ONLY=false
 SANS=""
