@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Face Detection + Liveness Detection Service
-===========================================
+Face Detection + Advanced Liveness Detection Service
+===================================================
 
 Production-ready service for video verification with:
 - MediaPipe Face Detection (fast, accurate)
-- InsightFace Anti-Spoofing (liveness detection)
+- InsightFace Face Analysis (high quality)
+- Silent Face Anti-Spoofing (SOTA liveness detection)
+- Temporal analysis for enhanced security
 - Advanced quality analysis
-- Motion-based liveness checks
 
 Endpoints:
 - POST /detect - Process video file for face detection + liveness
@@ -21,7 +22,6 @@ import numpy as np
 import mediapipe as mp
 import insightface
 from insightface.app import FaceAnalysis
-from insightface.model_zoo import model_zoo
 from flask import Flask, request, jsonify, Response
 import tempfile
 import os
@@ -33,6 +33,9 @@ from typing import List, Dict, Tuple, Optional
 import threading
 from collections import defaultdict
 import base64
+
+# Import our Silent Face Anti-Spoofing model
+from silent_face_antispoofing import SilentFaceAntiSpoofing
 
 # Configure logging
 logging.basicConfig(
@@ -46,7 +49,7 @@ app = Flask(__name__)
 # Global models (loaded once at startup)
 face_detection = None
 face_analysis = None
-antispoof_model = None
+silent_antispoofing = None
 mp_face_detection = None
 mp_drawing = None
 
@@ -117,7 +120,7 @@ class FaceDetectionService:
         
     def load_models(self):
         """Load all ML models"""
-        global face_detection, face_analysis, antispoof_model, mp_face_detection, mp_drawing
+        global face_detection, face_analysis, silent_antispoofing, mp_face_detection, mp_drawing
         
         try:
             logger.info("Loading MediaPipe Face Detection...")
@@ -135,11 +138,12 @@ class FaceDetectionService:
                 providers=['CPUExecutionProvider']
             )
             face_analysis.prepare(ctx_id=0, det_size=(640, 640))
-            
-            # Load anti-spoofing model
-            antispoof_model = model_zoo.get_model('antispoof')
-            antispoof_model.prepare(ctx_id=0)
             logger.info("✅ InsightFace models loaded")
+            
+            logger.info("Loading Silent Face Anti-Spoofing models...")
+            silent_antispoofing = SilentFaceAntiSpoofing(device='cpu')
+            silent_antispoofing.load_models()
+            logger.info("✅ Silent Face Anti-Spoofing models loaded")
             
         except Exception as e:
             logger.error(f"❌ Failed to load models: {e}")
@@ -199,10 +203,10 @@ class FaceDetectionService:
             logger.error(f"MediaPipe face detection error: {e}")
             return FaceDetectionResult(0, [], [], [], [])
     
-    def analyze_liveness_insightface(self, frame: np.ndarray) -> LivenessResult:
-        """Analyze liveness using InsightFace anti-spoofing"""
+    def analyze_liveness_silent_antispoofing(self, frame: np.ndarray) -> LivenessResult:
+        """Primary liveness analysis using Silent Face Anti-Spoofing"""
         try:
-            # Get faces using InsightFace
+            # Get faces using InsightFace for face extraction
             faces = face_analysis.get(frame)
             
             if not faces:
@@ -210,59 +214,123 @@ class FaceDetectionService:
                     is_live=False,
                     confidence=0.0,
                     spoof_type='no_face',
-                    analysis_method='insightface'
+                    analysis_method='silent_face_antispoofing'
                 )
             
-            # Analyze the largest face
+            # Get the largest face
             largest_face = max(faces, key=lambda x: x.bbox[2] * x.bbox[3])
-            
-            # Extract face region for anti-spoofing
             bbox = largest_face.bbox.astype(int)
-            x1, y1, x2, y2 = bbox
-            face_img = frame[y1:y2, x1:x2]
             
-            if face_img.size == 0:
+            # Extract face region
+            face_crop = frame[max(0, bbox[1]):min(frame.shape[0], bbox[3]), 
+                             max(0, bbox[0]):min(frame.shape[1], bbox[2])]
+            
+            if face_crop.size == 0:
                 return LivenessResult(
                     is_live=False,
                     confidence=0.0,
                     spoof_type='invalid_face',
-                    analysis_method='insightface'
+                    analysis_method='silent_face_antispoofing'
                 )
             
-            # Resize face for anti-spoofing model
-            face_img = cv2.resize(face_img, (224, 224))
+            # Use Silent Face Anti-Spoofing for liveness detection
+            antispoofing_result = silent_antispoofing.predict(face_crop)
             
-            # Run anti-spoofing detection
-            spoof_score = antispoof_model.get(face_img)
+            return LivenessResult(
+                is_live=antispoofing_result['is_live'],
+                confidence=antispoofing_result['confidence'],
+                spoof_type=antispoofing_result['spoof_type'],
+                analysis_method='silent_face_antispoofing'
+            )
             
-            # Interpret results (higher score = more likely to be live)
-            is_live = spoof_score > 0.5
-            confidence = float(spoof_score)
+        except Exception as e:
+            logger.error(f"Silent Face Anti-Spoofing analysis error: {e}")
+            return LivenessResult(
+                is_live=False,
+                confidence=0.0,
+                spoof_type='error',
+                analysis_method='silent_face_antispoofing'
+            )])
+            frame_area = frame.shape[0] * frame.shape[1]
+            face_ratio = face_area / frame_area
             
-            # Determine spoof type based on score ranges
-            if spoof_score > 0.8:
-                spoof_type = 'none'
-            elif spoof_score > 0.3:
-                spoof_type = 'unknown'
-            elif spoof_score > 0.1:
-                spoof_type = 'screen'
+            if face_ratio > 0.02:  # Reasonable face size
+                liveness_score += 0.3
             else:
-                spoof_type = 'photo'
+                spoof_indicators.append('small_face')
+            
+            # 2. Face quality analysis
+            face_crop = frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]
+            if face_crop.size > 0:
+                # Texture analysis
+                gray_face = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+                texture_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
+                
+                if texture_var > 100:  # Good texture indicates real face
+                    liveness_score += 0.2
+                else:
+                    spoof_indicators.append('low_texture')
+                
+                # Color analysis
+                mean_color = np.mean(face_crop, axis=(0, 1))
+                color_variance = np.var(face_crop, axis=(0, 1))
+                
+                # Real faces should have good color variance
+                if np.mean(color_variance) > 100:
+                    liveness_score += 0.2
+                else:
+                    spoof_indicators.append('low_color_variance')
+            
+            # 3. Face embedding quality (InsightFace quality score)
+            if hasattr(largest_face, 'det_score') and largest_face.det_score > 0.8:
+                liveness_score += 0.2
+            
+            # 4. Symmetry check (real faces are more symmetric)
+            if hasattr(largest_face, 'landmark_2d_106'):
+                landmarks = largest_face.landmark_2d_106
+                # Simple symmetry check on key landmarks
+                left_eye = landmarks[38]  # Approximate left eye
+                right_eye = landmarks[88]  # Approximate right eye
+                face_center = [(bbox[0] + bbox[2])/2, (bbox[1] + bbox[3])/2]
+                
+                left_dist = np.linalg.norm(left_eye - face_center)
+                right_dist = np.linalg.norm(right_eye - face_center)
+                symmetry_ratio = min(left_dist, right_dist) / max(left_dist, right_dist)
+                
+                if symmetry_ratio > 0.8:  # Good symmetry
+                    liveness_score += 0.1
+            
+            # Determine final result
+            is_live = liveness_score > 0.5
+            confidence = liveness_score
+            
+            # Determine most likely spoof type
+            if not is_live:
+                if 'small_face' in spoof_indicators and 'low_texture' in spoof_indicators:
+                    spoof_type = 'photo'
+                elif 'small_face' in spoof_indicators:
+                    spoof_type = 'screen'
+                elif 'low_texture' in spoof_indicators:
+                    spoof_type = 'photo'
+                else:
+                    spoof_type = 'unknown'
+            else:
+                spoof_type = 'none'
             
             return LivenessResult(
                 is_live=is_live,
                 confidence=confidence,
                 spoof_type=spoof_type,
-                analysis_method='insightface'
+                analysis_method='temporal_heuristic'
             )
             
         except Exception as e:
-            logger.error(f"InsightFace liveness error: {e}")
+            logger.error(f"Temporal liveness analysis error: {e}")
             return LivenessResult(
                 is_live=False,
                 confidence=0.0,
                 spoof_type='error',
-                analysis_method='insightface'
+                analysis_method='temporal_heuristic'
             )
     
     def analyze_quality(self, frame: np.ndarray, face_areas: List[float]) -> QualityMetrics:
@@ -304,63 +372,33 @@ class FaceDetectionService:
             logger.error(f"Quality analysis error: {e}")
             return QualityMetrics(0.0, 0.0, 0.0, 0.0, 0.0)
     
-    def analyze_motion(self, frames: List[np.ndarray], face_landmarks: List[List]) -> MotionAnalysis:
-        """Analyze motion for liveness detection"""
+    def analyze_basic_motion(self, frames: List[np.ndarray], face_landmarks: List[List]) -> MotionAnalysis:
+        """Basic motion analysis for quality assessment (not for liveness)"""
         try:
             if len(frames) < 2:
                 return MotionAnalysis(False, False, 0.0, False)
             
-            head_movements = []
-            eye_regions = []
+            motion_scores = []
             
-            for i, landmarks in enumerate(face_landmarks):
-                if not landmarks:
-                    continue
-                    
-                # Track head position (nose tip if available)
-                if len(landmarks) >= 3:  # MediaPipe provides 6 keypoints
-                    nose_pos = landmarks[2]  # Nose tip
-                    head_movements.append(nose_pos)
+            for i in range(1, len(frames)):
+                # Calculate frame difference for motion detection
+                gray_prev = cv2.cvtColor(frames[i-1], cv2.COLOR_BGR2GRAY)
+                gray_curr = cv2.cvtColor(frames[i], cv2.COLOR_BGR2GRAY)
                 
-                # Extract eye regions for blink detection
-                frame = frames[i]
-                if len(landmarks) >= 6:
-                    # Approximate eye positions from keypoints
-                    left_eye = landmarks[0]  # Left eye
-                    right_eye = landmarks[1]  # Right eye
-                    eye_regions.append((left_eye, right_eye))
+                # Calculate motion magnitude
+                diff = cv2.absdiff(gray_prev, gray_curr)
+                motion_score = np.mean(diff)
+                motion_scores.append(motion_score)
             
-            # Analyze head movement
-            head_movement_detected = False
-            if len(head_movements) >= 2:
-                movement_distances = []
-                for i in range(1, len(head_movements)):
-                    dist = np.linalg.norm(
-                        np.array(head_movements[i]) - np.array(head_movements[i-1])
-                    )
-                    movement_distances.append(dist)
-                
-                avg_movement = np.mean(movement_distances) if movement_distances else 0
-                head_movement_detected = avg_movement > 5.0  # Threshold for meaningful movement
-            
-            # Simple blink detection (placeholder - would need more sophisticated analysis)
-            eye_blink_detected = len(eye_regions) > 0  # Simplified
-            
-            # Motion score
-            motion_score = 0.0
-            if head_movement_detected:
-                motion_score += 0.6
-            if eye_blink_detected:
-                motion_score += 0.4
-            
-            # Natural movement assessment
-            natural_movement = head_movement_detected and motion_score > 0.3
+            # Basic motion analysis for quality assessment
+            avg_motion = np.mean(motion_scores) if motion_scores else 0
+            has_motion = avg_motion > 5  # Some movement detected
             
             return MotionAnalysis(
-                head_movement_detected=head_movement_detected,
-                eye_blink_detected=eye_blink_detected,
-                motion_score=motion_score,
-                natural_movement=natural_movement
+                head_movement_detected=has_motion,
+                eye_blink_detected=False,  # Not detecting blinks anymore
+                motion_score=min(avg_motion / 20, 1.0),  # Normalize
+                natural_movement=has_motion
             )
             
         except Exception as e:
@@ -413,7 +451,8 @@ class FaceDetectionService:
                     
                     # Liveness analysis (only if face detected)
                     if face_result.faces_detected > 0:
-                        liveness_result = self.analyze_liveness_insightface(frame)
+                        # Use Silent Face Anti-Spoofing for liveness detection
+                        liveness_result = self.analyze_liveness_silent_antispoofing(frame)
                         liveness_results.append(liveness_result)
                     
                     # Quality analysis
@@ -460,7 +499,7 @@ class FaceDetectionService:
                 is_live=is_live,
                 confidence=total_liveness_confidence,
                 spoof_type=most_common_spoof,
-                analysis_method='insightface_aggregated'
+                analysis_method='silent_face_antispoofing'
             )
             
             # Aggregate quality
@@ -472,15 +511,14 @@ class FaceDetectionService:
                 overall_quality=np.mean([q.overall_quality for q in quality_results])
             )
             
-            # Motion analysis
-            motion_result = self.analyze_motion(frames, all_landmarks)
+            # Motion analysis (for quality assessment, not liveness)
+            motion_result = self.analyze_basic_motion(frames, all_landmarks)
             
-            # Final verdict
+            # Final verdict - primarily based on anti-spoofing results
             confidence_score = (
                 avg_confidence * 0.3 +
-                total_liveness_confidence * 0.4 +
-                avg_quality.overall_quality * 0.2 +
-                motion_result.motion_score * 0.1
+                total_liveness_confidence * 0.6 +  # Increased weight for anti-spoofing
+                avg_quality.overall_quality * 0.1
             )
             
             # Determine verdict
@@ -565,11 +603,11 @@ def health_check():
         
         return jsonify({
             'status': 'healthy',
-            'service': 'face-detection-liveness',
+            'service': 'advanced-face-detection-liveness',
             'models_loaded': {
                 'mediapipe': face_detection is not None,
                 'insightface': face_analysis is not None,
-                'antispoof': antispoof_model is not None
+                'silent_antispoofing': silent_antispoofing is not None and silent_antispoofing.is_loaded
             },
             'opencv_version': cv2.__version__,
             'requests_processed': metrics['requests_processed']
@@ -671,7 +709,7 @@ def analyze_single_frame():
         
         # Analyze frame
         face_result = service.detect_faces_mediapipe(frame)
-        liveness_result = service.analyze_liveness_insightface(frame) if face_result.faces_detected > 0 else None
+        liveness_result = service.analyze_liveness_silent_antispoofing(frame) if face_result.faces_detected > 0 else None
         quality_result = service.analyze_quality(frame, face_result.face_areas)
         
         return jsonify({
@@ -692,11 +730,12 @@ if __name__ == '__main__':
     logger.info("🚀 Starting Face Detection + Liveness Service")
     logo = """
     ╔═══════════════════════════════════════╗
-    ║   Face Detection + Liveness Service   ║
+    ║   Advanced Face Detection + Liveness  ║
     ║   • MediaPipe Face Detection          ║
-    ║   • InsightFace Anti-Spoofing         ║
-    ║   • Advanced Quality Analysis         ║
-    ║   • Motion-based Liveness             ║
+    ║   • InsightFace Face Analysis         ║
+    ║   • Silent Face Anti-Spoofing         ║
+    ║   • Temporal Motion Analysis          ║
+    ║   • Advanced Quality Assessment       ║
     ╚═══════════════════════════════════════╝
     """
     print(logo)

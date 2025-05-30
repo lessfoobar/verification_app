@@ -60,5 +60,9 @@ test-logs
 # trunk
 .trunk
 
+# python deps venv
+opencv-container-dnf-packages-build
+pip-venv-cache
+
 # local
 *TODO*

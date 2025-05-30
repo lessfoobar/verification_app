@@ -5,7 +5,10 @@ FROM quay.io/fedora/fedora:latest as builder
 
 LABEL stage=builder
 
-# Install build dependencies
+# Copy RPMs into the dnf cache where DNF expects to find them
+COPY opencv-container-dnf-packages-build /var/cache/libdnf5
+
+# Install Python 3.12 and build dependencies
 RUN dnf update -y && \
     dnf install -y \
         python3.12 \
@@ -24,29 +27,39 @@ RUN dnf update -y && \
         libstdc++-devel \
         atlas-devel \
         blas-devel \
-        lapack-devel
-# Set Python 3.12 as default python3
-RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    python3 -m ensurepip --upgrade
-
-# Verify Python version
-RUN python3 --version && pip3 --version
+        lapack-devel && \
+    dnf clean all
 
 # Create working directory
 WORKDIR /app
 
-# Copy requirements and install Python packages
-COPY requirements.txt .
+# create python3.12 
+RUN mkdir -p /opt/venv
 
-# Upgrade pip and install packages
-RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    python3 -m pip install --no-cache-dir -r requirements.txt
+# Create virtual environment with Python 3.12
+COPY pip-venv-cache/ /opt/venv
+
+# Activate virtual environment and install pip
+RUN /opt/venv/bin/python -m pip install --upgrade pip
+
+# Copy requirements file
+COPY requirements.txt /app
+
+# Install Python packages in venv
+RUN /opt/venv/bin/pip install -r /app/requirements.txt && \
+    rm -f /opt/venv/requirements.txt
+
+# Clean up redundant cache
+RUN find /opt/venv -name '*.pyc' -delete && \
+    find /opt/venv -name '__pycache__' -type d -exec rm -rf {} + && \
+    rm -rf /opt/venv/lib/python*/site-packages/*.dist-info && \
+    rm -rf /opt/venv/lib/python*/site-packages/*/{tests,test,*.egg-info}
 
 # Copy application files
-COPY *.py ./
+COPY *.py /app
 
-# Run model preparation and testing
-RUN python3 test_models.py
+# Run model preparation and testing with activated venv
+RUN /opt/venv/bin/python test_models.py
 
 # -------------------------------
 # Stage 2: Runtime
@@ -58,7 +71,10 @@ LABEL maintainer="verification-service@example.com"
 LABEL description="Production Face Detection + Liveness Verification Service"
 LABEL version="1.0.0"
 
-# Install runtime dependencies only
+# Copy RPMs into the dnf cache where DNF expects to find them
+COPY opencv-container-dnf-packages-build /var/cache/libdnf5
+
+# Install Python 3.12 and runtime dependencies only
 RUN dnf update -y && \
     dnf install -y \
         python3.12 \
@@ -73,52 +89,42 @@ RUN dnf update -y && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-# Set Python 3.12 as default python3
-RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    python3 -m ensurepip --upgrade
+    # Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    GLOG_minloglevel=2 \
+    OMP_NUM_THREADS=4 \
+    OPENCV_LOG_LEVEL=ERROR \
+    MEDIAPIPE_DISABLE_GPU=1 \
+    # Performance optimizations
+    OPENBLAS_NUM_THREADS=4 \
+    MKL_NUM_THREADS=4 \
+    NUMEXPR_NUM_THREADS=4 \
+    # Model cache locations
+    INSIGHTFACE_HOME=/home/opencv-service/.insightface \
+    MEDIAPIPE_CACHE_DIR=/home/opencv-service/.cache/mediapipe \
+    # Activate virtual environment by setting PATH
+    PATH="/opt/venv/bin:$PATH"
+
+# Move into the work dir
+WORKDIR /app
 
 # Create non-root user and directories
 RUN useradd -r -s /bin/false -m opencv-service && \
-    mkdir -p /app && \
-    chown -R opencv-service:opencv-service /app
+    mkdir -p /app /home/opencv-service/.cache /home/opencv-service/.insightface && \
+    chown -R opencv-service:opencv-service /app /home/opencv-service /opt
 
-WORKDIR /app
-
-# Copy requirements and install packages
-COPY requirements.txt .
-RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir -r requirements.txt
-
-# Copy application and models from builder
-COPY --from=builder /app /app
-COPY --from=builder /home/opencv-service/.insightface /home/opencv-service/.insightface 2>/dev/null || true
-COPY --from=builder /home/opencv-service/.cache /home/opencv-service/.cache 2>/dev/null || true
-
-# Ensure proper ownership
-RUN chown -R opencv-service:opencv-service /app /home/opencv-service
+# Copy application odels and venv from builder and set ownership
+COPY --from=builder --chown=opencv-service:opencv-service /opt/venv /opt/venv
+COPY --from=builder --chown=opencv-service:opencv-service /app /app
+COPY --from=builder --chown=opencv-service:opencv-service /root/.insightface /home/opencv-service/.insightface
+COPY --from=builder --chown=opencv-service:opencv-service /root/.cache /home/opencv-service/.cache
 
 # Switch to non-root user
 USER opencv-service
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV GLOG_minloglevel=2
-ENV OMP_NUM_THREADS=4
-ENV OPENCV_LOG_LEVEL=ERROR
-ENV MEDIAPIPE_DISABLE_GPU=1
-
-# Performance optimizations
-ENV OPENBLAS_NUM_THREADS=4
-ENV MKL_NUM_THREADS=4
-ENV NUMEXPR_NUM_THREADS=4
-
-# Model cache locations
-ENV INSIGHTFACE_HOME=/home/opencv-service/.insightface
-ENV MEDIAPIPE_CACHE_DIR=/home/opencv-service/.cache/mediapipe
-
 # Expose port
 EXPOSE 8002
 
-# Run application
-CMD ["python3", "face_detection.py"]
+# Run application with activated venv
+CMD ["/opt/venv/bin/python", "face_detection.py"]
