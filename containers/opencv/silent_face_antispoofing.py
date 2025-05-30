@@ -26,8 +26,7 @@ class Conv_block(nn.Module):
     """Convolutional block with BatchNorm and PReLU activation"""
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):
         super(Conv_block, self).__init__()
-        self.conv = nn.Conv2d(in_c, out_c, kernel_size=kernel, groups=groups,
-                             stride=stride, padding=padding, bias=False)
+        self.conv = nn.Conv2d(in_c, out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_c)
         self.prelu = nn.PReLU(out_c)
 
