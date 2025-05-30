@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Create all directories
+mkdir -p face_detection_service/{models/{face_detection,liveness,quality,motion},services,api,core,utils,monitoring,tests/{unit/{test_models,test_services,test_api},integration,fixtures/{test_images,test_videos}},external/silent_face_antispoofing}
+
+# Create empty files
+touch face_detection_service/app.py
+touch face_detection_service/config.py
+
+# Models
+touch face_detection_service/models/__init__.py
+touch face_detection_service/models/base.py
+touch face_detection_service/models/face_detection/__init__.py
+touch face_detection_service/models/face_detection/mediapipe_detector.py
+touch face_detection_service/models/face_detection/base_detector.py
+touch face_detection_service/models/liveness/__init__.py
+touch face_detection_service/models/liveness/silent_antispoofing.py
+touch face_detection_service/models/liveness/temporal_analysis.py
+touch face_detection_service/models/liveness/base_liveness.py
+touch face_detection_service/models/quality/__init__.py
+touch face_detection_service/models/quality/image_quality.py
+touch face_detection_service/models/quality/base_quality.py
+touch face_detection_service/models/motion/__init__.py
+touch face_detection_service/models/motion/motion_analyzer.py
+touch face_detection_service/models/motion/base_motion.py
+
+# Services
+touch face_detection_service/services/__init__.py
+touch face_detection_service/services/detection_service.py
+touch face_detection_service/services/video_processor.py
+touch face_detection_service/services/frame_processor.py
+touch face_detection_service/services/model_manager.py
+
+# API
+touch face_detection_service/api/__init__.py
+touch face_detection_service/api/routes.py
+touch face_detection_service/api/validators.py
+touch face_detection_service/api/responses.py
+touch face_detection_service/api/middleware.py
+
+# Core
+touch face_detection_service/core/__init__.py
+touch face_detection_service/core/data_structures.py
+touch face_detection_service/core/exceptions.py
+touch face_detection_service/core/constants.py
+
+# Utils
+touch face_detection_service/utils/__init__.py
+touch face_detection_service/utils/metrics.py
+touch face_detection_service/utils/helpers.py
+touch face_detection_service/utils/video_utils.py
+touch face_detection_service/utils/image_utils.py
+
+# Monitoring
+touch face_detection_service/monitoring/__init__.py
+touch face_detection_service/monitoring/health_checker.py
+touch face_detection_service/monitoring/performance_monitor.py
+
+# Tests
+touch face_detection_service/tests/__init__.py
+touch face_detection_service/tests/conftest.py
+touch face_detection_service/tests/unit/test_models/__init__.py
+touch face_detection_service/tests/unit/test_services/__init__.py
+touch face_detection_service/tests/unit/test_api/__init__.py
+touch face_detection_service/tests/integration/test_full_pipeline.py
+
+# Fixtures (directories only)
+# already created via mkdir
+
+# External
+touch face_detection_service/external/silent_face_antispoofing/.gitkeep
+
+# Requirements
+touch face_detection_service/requirements.txt
+
+echo "Directory structure and files created."
