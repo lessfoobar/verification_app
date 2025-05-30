@@ -47,7 +47,7 @@ def download_and_prepare_models():
 
     except Exception as e:
         print(f"   ❌ InsightFace model download failed: {e}")
-        return False
+        return None, None
 
     # 2. Prepare MediaPipe models
     print("🔄 Preparing MediaPipe models...")
@@ -80,10 +80,10 @@ def download_and_prepare_models():
 
     except Exception as e:
         print(f"   ❌ MediaPipe model preparation failed: {e}")
-        return False
+        return None, None
 
     print("✅ All models downloaded and prepared successfully!")
-    return True
+    return app, antispoofing
 
 def run_comprehensive_tests():
     """Run comprehensive model tests"""
@@ -130,8 +130,10 @@ def run_comprehensive_tests():
         start_time = time.time()
 
         # Test FaceAnalysis
-        app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-        app.prepare(ctx_id=0, det_size=(640, 640))
+        app, antispoofing = download_and_prepare_models()
+        if app is None:
+            print("❌ Failed to load InsightFace models")
+            return False
 
         load_time = time.time() - start_time
         print(f"✅ InsightFace FaceAnalysis loaded ({load_time:.2f}s)")
@@ -171,7 +173,7 @@ def run_comprehensive_tests():
         # Generate test frames
         test_frames = [create_synthetic_face() for _ in range(5)]
 
-        # Benchmark MediaPipe
+        # Benchmark MediaPipe (use the face_detection variable from above)
         start_time = time.time()
         for frame in test_frames:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -186,15 +188,24 @@ def run_comprehensive_tests():
 
         # Benchmark Silent Face Anti-Spoofing (if available and faces detected)
         antispoofing_time = 0
-        if antispoofing is not None and app is not None and len(faces) > 0:
-            bbox = faces[0].bbox.astype(int)
-            x1, y1, x2, y2 = bbox
-            test_face_crop = test_frames[0][max(0, y1):min(test_frames[0].shape[0], y2), max(0, x1):min(test_frames[0].shape[1], x2)]
+        if antispoofing is not None and app is not None:
+            # Try to get faces for testing
+            test_faces = app.get(test_frames[0])
+            if len(test_faces) > 0:
+                bbox = test_faces[0].bbox.astype(int)
+                x1, y1, x2, y2 = bbox
+                test_face_crop = test_frames[0][max(0, y1):min(test_frames[0].shape[0], y2), max(0, x1):min(test_frames[0].shape[1], x2)]
 
-            if test_face_crop.size > 0:
+                if test_face_crop.size > 0:
+                    start_time = time.time()
+                    for _ in range(len(test_frames)):
+                        result = antispoofing.predict(test_face_crop)
+                    antispoofing_time = (time.time() - start_time) / len(test_frames)
+            else:
+                # Test with synthetic face crop if no faces detected
                 start_time = time.time()
                 for _ in range(len(test_frames)):
-                    result = antispoofing.predict(test_face_crop)
+                    result = antispoofing.predict(test_frames[0])
                 antispoofing_time = (time.time() - start_time) / len(test_frames)
 
         print(f"✅ Performance benchmark completed:")
@@ -288,7 +299,9 @@ def main():
     print("=" * 60)
 
     # Step 1: Download and prepare models
-    if not download_and_prepare_models():
+    print("🔄 Preparing models...")
+    app, antispoofing = download_and_prepare_models()
+    if app is None:
         print("\n❌ Model preparation failed!")
         sys.exit(1)
 

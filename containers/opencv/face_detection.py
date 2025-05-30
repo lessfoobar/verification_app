@@ -250,7 +250,8 @@ class FaceDetectionService:
                 confidence=0.0,
                 spoof_type='error',
                 analysis_method='silent_face_antispoofing'
-            )])
+            )
+
             frame_area = frame.shape[0] * frame.shape[1]
             face_ratio = face_area / frame_area
             
@@ -616,6 +617,38 @@ def health_check():
         return jsonify({
             'status': 'unhealthy', 
             'error': str(e)
+        }), 500
+
+@app.route('/detect/capabilities', methods=['GET'])
+def get_capabilities():
+    """Service capabilities endpoint"""
+    try:
+        return jsonify({
+            'service': 'advanced-face-detection-liveness',
+            'version': '1.0.0',
+            'capabilities': {
+                'face_detection': face_detection is not None,
+                'liveness_detection': silent_antispoofing is not None and silent_antispoofing.is_loaded,
+                'real_time_feedback': True,
+                'video_processing': True,
+                'quality_analysis': True,
+                'motion_analysis': True
+            },
+            'models': {
+                'mediapipe_face_detection': face_detection is not None,
+                'insightface_buffalo_l': face_analysis is not None,
+                'silent_face_antispoofing': silent_antispoofing is not None and silent_antispoofing.is_loaded
+            },
+            'supported_formats': ['mp4', 'avi', 'mov', 'jpg', 'png'],
+            'max_video_size_mb': 50,
+            'max_video_duration_seconds': 60,
+            'processing_timeout_seconds': 120
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'service': 'advanced-face-detection-liveness',
+            'status': 'error'
         }), 500
 
 @app.route('/metrics', methods=['GET'])
