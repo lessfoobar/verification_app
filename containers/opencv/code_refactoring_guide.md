@@ -1,860 +1,630 @@
-# OpenCV Service Complete Refactoring Plan
+# OpenCV Service Detailed Refactoring Steps
 
-## 📋 **Current State Analysis**
+## 📋 **Pre-Refactoring Checklist**
 
-### **Existing Files:**
+### **Step 0.1: Backup and Preparation**
 
-- `face_detection.py` (876 lines) - Monolithic service with everything
-- `silent_face_antispoofing.py` (347 lines) - Anti-spoofing model implementation
-- `healthcheck.py` (285 lines) - Health check utilities
-- `integration_example.py` (573 lines) - Integration examples and tests
-- `api_integration.py` (678 lines) - External API integration helpers
-- `test_models.py` (397 lines) - Model testing and validation
-- `requirements.txt` - Python dependencies
-- `Containerfile` - Container build definition
+- [ ] Create backup branch: `git checkout -b backup-before-refactoring`
+- [ ] Create refactoring branch: `git checkout -b refactor-opencv-service`
+- [ ] Document current API behavior with tests
+- [ ] Take performance baseline measurements
+- [ ] List all current endpoints and their exact response formats
 
-### **Current Problems Identified:**
+### **Step 0.2: Verify Current System Works**
 
-1. **Monolithic Architecture**: `face_detection.py` contains:
-   - Flask application setup
-   - Model loading and management
-   - Face detection logic (MediaPipe)
-   - Liveness detection orchestration
-   - Quality analysis
-   - Motion analysis
-   - Video processing pipeline
-   - Frame processing
-   - Performance metrics
-   - HTTP endpoints
+- [ ] Run `make test-opencv` - ensure all tests pass
+- [ ] Test `/health` endpoint returns 200
+- [ ] Test `/detect` endpoint with sample video
+- [ ] Test `/analyze-frame` endpoint with sample image
+- [ ] Test `/detect/capabilities` endpoint
+- [ ] Test `/metrics` endpoint
 
-2. **Tight Coupling**: All components are intertwined making testing/modification difficult
+## 🏗️ **Phase 1: Foundation Setup (Day 1-2)**
 
-3. **No Separation of Concerns**: Business logic mixed with API layer
+### **Step 1.1: Create New Directory Structure**
 
-4. **Hard to Test**: Cannot unit test individual components
-
-5. **Difficult to Extend**: Adding new models requires modifying core file
-
----
-
-## 🎯 **Target Architecture**
-
-```text
-face_detection_service/
-├── app.py                           # Flask app entry point
-├── config.py                        # Configuration management
-├── models/
-│   ├── __init__.py                  # Model exports
-│   ├── base.py                      # Abstract base classes
-│   ├── face_detection/
-│   │   ├── __init__.py
-│   │   ├── mediapipe_detector.py    # MediaPipe implementation
-│   │   └── base_detector.py         # Face detection interface
-│   ├── liveness/
-│   │   ├── __init__.py
-│   │   ├── silent_antispoofing.py   # Silent Face Anti-Spoofing
-│   │   ├── temporal_analysis.py     # Temporal-based detection
-│   │   └── base_liveness.py         # Liveness interface
-│   ├── quality/
-│   │   ├── __init__.py
-│   │   ├── image_quality.py         # Image quality analysis
-│   │   └── base_quality.py          # Quality interface
-│   └── motion/
-│       ├── __init__.py
-│       ├── motion_analyzer.py       # Motion detection
-│       └── base_motion.py           # Motion interface
-├── services/
-│   ├── __init__.py
-│   ├── detection_service.py         # Main orchestration
-│   ├── video_processor.py           # Video handling
-│   ├── frame_processor.py           # Single frame processing
-│   └── model_manager.py             # Model lifecycle management
-├── api/
-│   ├── __init__.py
-│   ├── routes.py                    # Flask routes
-│   ├── validators.py                # Request validation
-│   ├── responses.py                 # Response formatting
-│   └── middleware.py                # CORS, error handling
-├── core/
-│   ├── __init__.py
-│   ├── data_structures.py           # Data classes
-│   ├── exceptions.py                # Custom exceptions
-│   └── constants.py                 # Constants
-├── utils/
-│   ├── __init__.py
-│   ├── metrics.py                   # Performance tracking
-│   ├── helpers.py                   # Utility functions
-│   ├── video_utils.py               # Video processing helpers
-│   └── image_utils.py               # Image processing helpers
-├── monitoring/
-│   ├── __init__.py
-│   ├── health_checker.py            # Health check logic
-│   └── performance_monitor.py       # Performance monitoring
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py                  # Test configuration
-│   ├── unit/
-│   │   ├── test_models/
-│   │   ├── test_services/
-│   │   └── test_api/
-│   ├── integration/
-│   │   └── test_full_pipeline.py
-│   └── fixtures/
-│       ├── test_images/
-│       └── test_videos/
-├── external/
-│   └── silent_face_antispoofing/    # External model (minimal changes)
-└── requirements.txt
-```
-
----
-
-## 🔄 **Phase 1: Project Structure Setup**
-
-### **Step 1.1: Create Directory Structure**
+**Action**: Create new directories in `containers/opencv/`
 
 ```bash
-mkdir -p face_detection_service/{models/{face_detection,liveness,quality,motion},services,api,core,utils,monitoring,tests/{unit/{test_models,test_services,test_api},integration,fixtures/{test_images,test_videos}},external}
+# Navigate to containers/opencv/
+cd containers/opencv/
+
+# Create new directory structure
+mkdir -p face_detection_service/{processors,api,core,utils,tests}
+mkdir -p face_detection_service/tests/{unit,integration,fixtures}
+mkdir -p face_detection_service/tests/fixtures/{images,videos}
+
+# Create __init__.py files
+touch face_detection_service/__init__.py
+touch face_detection_service/processors/__init__.py
+touch face_detection_service/api/__init__.py
+touch face_detection_service/core/__init__.py
+touch face_detection_service/utils/__init__.py
+touch face_detection_service/tests/__init__.py
+touch face_detection_service/tests/unit/__init__.py
+touch face_detection_service/tests/integration/__init__.py
 ```
 
-### **Step 1.2: Create `__init__.py` Files**
+### **Step 1.2: Extract Data Classes**
 
-- Create empty `__init__.py` in all module directories
-- This establishes Python package structure
+**Source**: `face_detection.py` lines 35-95
+**Target**: `face_detection_service/core/data_classes.py`
 
-### **Step 1.3: Move External Dependencies**
+**What to Extract**:
 
-- Move `silent_face_antispoofing.py` to `external/silent_face_antispoofing/`
-- Keep as-is initially, refactor later if needed
-- Update imports throughout codebase
+- [ ] `FaceDetectionResult` dataclass (lines ~40-45)
+- [ ] `LivenessResult` dataclass (lines ~47-52)
+- [ ] `QualityMetrics` dataclass (lines ~54-59)
+- [ ] `MotionAnalysis` dataclass (lines ~61-66)
+- [ ] `VideoAnalysisResult` dataclass (lines ~68-80)
 
----
+**What to Add**:
 
-## 🏗️ **Phase 2: Core Infrastructure**
+- [ ] `LiveFeedback` dataclass (new - for real-time recording)
+- [ ] `BlurResult` dataclass (new)
+- [ ] `FacePositionResult` dataclass (new)
+- [ ] `LightingResult` dataclass (new)
+- [ ] `BackgroundResult` dataclass (new)
+- [ ] `RecordingQuality` dataclass (new)
 
-### **Step 2.1: Extract Data Structures**
+**Step-by-step**:
 
-**From:** `face_detection.py` lines 35-95 (dataclasses)
-**To:** `core/data_structures.py`
+1. [ ] Create `face_detection_service/core/data_classes.py`
+2. [ ] Copy imports: `from dataclasses import dataclass, asdict`
+3. [ ] Copy imports: `from typing import Dict, List, Optional`
+4. [ ] Copy imports: `from datetime import datetime`
+5. [ ] Copy existing dataclasses from `face_detection.py`
+6. [ ] Add new dataclasses for real-time recording
+7. [ ] Add helper methods to dataclasses if needed
+8. [ ] Update imports in `face_detection.py` to use new module
 
-**Components to Extract:**
+### **Step 1.3: Extract Configuration**
 
-- `FaceDetectionResult` dataclass
-- `LivenessResult` dataclass  
-- `QualityMetrics` dataclass
-- `MotionAnalysis` dataclass
-- `VideoAnalysisResult` dataclass
+**Source**: Scattered hardcoded values in `face_detection.py`
+**Target**: `face_detection_service/config.py`
 
-**Dependencies to Consider:**
+**What to Extract**:
 
-- Import `List`, `Dict` from typing
-- Import `dataclass`, `asdict` from dataclasses
-- No complex dependencies - clean extraction
+- [ ] Model configuration parameters (lines ~100-120 in `load_models`)
+- [ ] Detection thresholds (scattered throughout)
+- [ ] Quality analysis thresholds (lines ~350-380)
+- [ ] Performance limits (video size, timeout, etc.)
+- [ ] Default values for endpoints
 
-### **Step 2.2: Extract Constants**
+**Step-by-step**:
 
-**From:** `face_detection.py` scattered throughout
-**To:** `core/constants.py`
+1. [ ] Create `face_detection_service/config.py`
+2. [ ] Search `face_detection.py` for all hardcoded numbers
+3. [ ] Group by category (detection, quality, performance, etc.)
+4. [ ] Create `Config` class with class attributes
+5. [ ] Add environment variable overrides where needed
+6. [ ] Replace hardcoded values in `face_detection.py` with `Config.VALUE`
 
-**Constants to Extract:**
+### **Step 1.4: Extract Custom Exceptions**
 
-- Model configuration parameters
-- Default thresholds and scores
-- File size limits
-- Timeout values
-- Error messages
+**Target**: `face_detection_service/core/exceptions.py`
 
-### **Step 2.3: Create Custom Exceptions**
+**What to Create**:
 
-**To:** `core/exceptions.py`
+- [ ] `ModelLoadError` - for model loading failures
+- [ ] `VideoProcessingError` - for video processing issues
+- [ ] `InvalidFrameError` - for frame validation errors
+- [ ] `LivenessDetectionError` - for liveness analysis failures
+- [ ] `QualityAnalysisError` - for quality analysis issues
 
-**New Exception Classes:**
+**Step-by-step**:
 
-- `ModelLoadError` - Model loading failures
-- `VideoProcessingError` - Video processing issues
-- `InvalidFrameError` - Frame validation errors
-- `LivenessDetectionError` - Liveness analysis failures
-- `QualityAnalysisError` - Quality analysis issues
+1. [ ] Create `face_detection_service/core/exceptions.py`
+2. [ ] Define custom exception classes
+3. [ ] Add meaningful error messages
+4. [ ] Review current error handling in `face_detection.py`
+5. [ ] Plan where to use new exceptions (don't implement yet)
 
-### **Step 2.4: Create Configuration Management**
+## 🔧 **Phase 2: Extract Processors (Day 3-5)**
 
-**From:** Scattered hardcoded values in `face_detection.py`
-**To:** `config.py`
+### **Step 2.1: Extract Face Detector**
 
-**Configuration Categories:**
+**Source**: `face_detection.py` lines 108-190 (`detect_faces_mediapipe` method)
+**Target**: `face_detection_service/processors/face_detector.py`
 
-- Model paths and parameters
-- Performance thresholds
-- API configuration
-- Logging configuration
-- Resource limits
+**What to Extract**:
 
----
+- [ ] MediaPipe initialization logic (from `load_models` method)
+- [ ] `detect_faces_mediapipe` method logic
+- [ ] Global variables: `face_detection`, `mp_face_detection`, `mp_drawing`
 
-## 🤖 **Phase 3: Model Layer Extraction**
+**Step-by-step**:
 
-### **Step 3.1: Create Base Model Interfaces**
+1. [ ] Create `face_detection_service/processors/face_detector.py`
+2. [ ] Copy necessary imports: `cv2`, `mediapipe`, `numpy`
+3. [ ] Copy global MediaPipe variables into class
+4. [ ] Create `FaceDetector` class with `__init__` method
+5. [ ] Move MediaPipe initialization from `load_models` to `__init__`
+6. [ ] Copy `detect_faces_mediapipe` method → rename to `detect_faces`
+7. [ ] Update method to use instance variables instead of globals
+8. [ ] Add error handling using new custom exceptions
+9. [ ] Add logging statements
+10. [ ] Test class works independently
 
-**To:** `models/base.py`
+**Dependencies to Handle**:
 
-**Interfaces to Define:**
+- [ ] Update imports in `face_detection.py`
+- [ ] Replace global variables with instance
+- [ ] Update method calls throughout `face_detection.py`
 
-- `FaceDetectionModel` ABC
-- `LivenessModel` ABC
-- `QualityModel` ABC
-- `MotionModel` ABC
+### **Step 2.2: Extract Liveness Checker**
 
-**Key Methods Each Interface Should Have:**
+**Source**: `face_detection.py` lines 192-285 (`analyze_liveness_silent_antispoofing` method)
+**Target**: `face_detection_service/processors/liveness_checker.py`
 
-- `load_model()` - Model initialization
-- `is_loaded()` - Model readiness check
-- `predict()` - Main prediction method
-- `get_info()` - Model metadata
+**What to Extract**:
 
-### **Step 3.2: Extract MediaPipe Face Detection**
+- [ ] InsightFace initialization logic
+- [ ] Silent Face Anti-Spoofing initialization
+- [ ] `analyze_liveness_silent_antispoofing` method logic
+- [ ] Global variables: `face_analysis`, `silent_antispoofing`
 
-**From:** `face_detection.py` lines 108-190 (`detect_faces_mediapipe` method)
-**To:** `models/face_detection/mediapipe_detector.py`
+**Step-by-step**:
 
-**Extraction Steps:**
+1. [ ] Create `face_detection_service/processors/liveness_checker.py`
+2. [ ] Copy necessary imports: `insightface`, `silent_face_antispoofing`
+3. [ ] Create `LivenessChecker` class with `__init__` method
+4. [ ] Move InsightFace initialization from `load_models` to `__init__`
+5. [ ] Move Silent Anti-Spoofing initialization to `__init__`
+6. [ ] Copy `analyze_liveness_silent_antispoofing` method → rename to `check_liveness`
+7. [ ] Update method to use instance variables instead of globals
+8. [ ] Add error handling and logging
+9. [ ] Test class works independently
 
-1. Create `MediaPipeFaceDetector` class implementing `FaceDetectionModel`
-2. Move MediaPipe initialization logic from `FaceDetectionService.__init__`
-3. Extract face detection algorithm
-4. Extract bounding box calculation
-5. Extract landmark extraction
-6. Extract confidence scoring
-7. Add proper error handling and logging
+**Dependencies to Handle**:
 
-**Dependencies to Handle:**
+- [ ] Import `silent_face_antispoofing.py` module
+- [ ] Update imports in `face_detection.py`
+- [ ] Replace global variables with instance
+- [ ] Update method calls throughout `face_detection.py`
 
-- `cv2` import
-- `mediapipe` import
-- `numpy` import
-- Global variables `face_detection`, `mp_face_detection`, `mp_drawing`
+### **Step 2.3: Extract Quality Analyzer**
 
-### **Step 3.3: Extract Silent Face Anti-Spoofing Integration**
+**Source**: `face_detection.py` lines 338-385 (`analyze_quality` method)
+**Target**: `face_detection_service/processors/quality_analyzer.py`
 
-**From:** `face_detection.py` lines 192-285 (`analyze_liveness_silent_antispoofing` method)
-**To:** `models/liveness/silent_antispoofing.py`
+**What to Extract**:
 
-**Extraction Steps:**
+- [ ] `analyze_quality` method logic
+- [ ] Quality calculation algorithms
 
-1. Create `SilentFaceLivenessDetector` class implementing `LivenessModel`
-2. Move InsightFace initialization logic
-3. Extract face extraction logic
-4. Extract Silent Face Anti-Spoofing integration
-5. Handle face cropping and preprocessing
-6. Add comprehensive error handling
+**What to Add** (New for Real-time Recording):
 
-**Dependencies to Handle:**
+- [ ] `analyze_live_frame` method for real-time feedback
+- [ ] Blur detection with user guidance
+- [ ] Face positioning analysis
+- [ ] Lighting analysis
+- [ ] Background analysis
+- [ ] User guidance message generation
 
-- `insightface` import and global `face_analysis`
-- `silent_face_antispoofing` import
-- Face extraction and cropping logic
+**Step-by-step**:
 
-### **Step 3.4: Extract Quality Analysis**
+1. [ ] Create `face_detection_service/processors/quality_analyzer.py`
+2. [ ] Copy necessary imports: `cv2`, `numpy`
+3. [ ] Create `QualityAnalyzer` class with `__init__` method
+4. [ ] Copy `analyze_quality` method logic → rename to `analyze_video_quality`
+5. [ ] Add new `analyze_live_frame` method for real-time analysis
+6. [ ] Implement blur detection with thresholds
+7. [ ] Implement face positioning analysis
+8. [ ] Implement lighting analysis
+9. [ ] Implement background analysis (if required)
+10. [ ] Create user guidance message generation
+11. [ ] Add comprehensive error handling and logging
 
-**From:** `face_detection.py` lines 338-385 (`analyze_quality` method)
-**To:** `models/quality/image_quality.py`
+### **Step 2.4: Extract Video Processor**
 
-**Extraction Steps:**
+**Source**: `face_detection.py` lines 432-600 (`process_video` method)
+**Target**: `face_detection_service/processors/video_processor.py`
 
-1. Create `ImageQualityAnalyzer` class implementing `QualityModel`
-2. Extract brightness analysis algorithm
-3. Extract sharpness analysis (Laplacian variance)
-4. Extract face size ratio calculation
-5. Extract stability scoring logic
-6. Extract overall quality computation
+**What to Extract**:
 
-### **Step 3.5: Extract Motion Analysis**
+- [ ] `process_video` method logic
+- [ ] Frame sampling logic
+- [ ] Result aggregation logic
+- [ ] Verdict determination logic
+- [ ] Recommendation generation
 
-**From:** `face_detection.py` lines 387-430 (`analyze_basic_motion` method)
-**To:** `models/motion/motion_analyzer.py`
+**Step-by-step**:
 
-**Extraction Steps:**
+1. [ ] Create `face_detection_service/processors/video_processor.py`
+2. [ ] Create `VideoProcessor` class with dependency injection
+3. [ ] Copy `process_video` method logic
+4. [ ] Break down method into smaller methods:
+   - [ ] `_sample_frames` - frame sampling logic
+   - [ ] `_analyze_frames` - process individual frames
+   - [ ] `_aggregate_results` - combine frame results
+   - [ ] `_determine_verdict` - final verdict logic
+   - [ ] `_generate_recommendations` - user recommendations
+5. [ ] Update method to use injected processors instead of globals
+6. [ ] Add comprehensive error handling
+7. [ ] Add progress tracking if needed
 
-1. Create `MotionAnalyzer` class implementing `MotionModel`
-2. Extract frame difference calculation
-3. Extract motion score computation
-4. Extract movement detection logic
-5. Add temporal analysis capabilities
+**Dependencies to Handle**:
 
----
+- [ ] Inject `FaceDetector`, `LivenessChecker`, `QualityAnalyzer`
+- [ ] Update all method calls to use injected instances
 
-## 🎛️ **Phase 4: Service Layer Creation**
+### **Step 2.5: Extract Motion Analyzer**
 
-### **Step 4.1: Create Model Manager**
+**Source**: `face_detection.py` lines 387-430 (`analyze_basic_motion` method)
+**Target**: `face_detection_service/processors/motion_analyzer.py`
 
-**To:** `services/model_manager.py`
+**What to Extract**:
 
-**Responsibilities:**
+- [ ] `analyze_basic_motion` method logic
+- [ ] Frame difference calculation
+- [ ] Motion score computation
 
-- Centralized model loading and lifecycle management
-- Model health monitoring
-- Model switching/hot-swapping capabilities
-- Resource management
+**Step-by-step**:
 
-**From face_detection.py:**
+1. [ ] Create `face_detection_service/processors/motion_analyzer.py`
+2. [ ] Create `MotionAnalyzer` class
+3. [ ] Copy `analyze_basic_motion` method → rename to `analyze_motion`
+4. [ ] Add error handling and logging
+5. [ ] Consider enhancing motion analysis for recording quality
 
-- Model initialization logic from `FaceDetectionService.__init__`
-- Model loading from `load_models` method
-- Global model variables management
+## 🌐 **Phase 3: Extract API Layer (Day 6-7)**
 
-### **Step 4.2: Extract Frame Processing Logic**
+### **Step 3.1: Extract Flask Routes**
 
-**From:** `face_detection.py` - scattered throughout `process_video` method
-**To:** `services/frame_processor.py`
+**Source**: `face_detection.py` lines 721-876 (Flask app and routes)
+**Target**: `face_detection_service/api/routes.py`
 
-**Extraction Steps:**
+**Routes to Extract**:
 
-1. Create `FrameProcessor` class
-2. Extract single frame analysis pipeline
-3. Extract frame sampling logic
-4. Extract preprocessing steps
-5. Extract result aggregation for frames
+- [ ] `/health` endpoint (lines ~725-745)
+- [ ] `/detect/capabilities` endpoint (lines ~747-775)
+- [ ] `/metrics` endpoint (lines ~777-790)
+- [ ] `/detect` endpoint (lines ~792-850)
+- [ ] `/analyze-frame` endpoint (lines ~852-876)
 
-**Key Methods:**
+**Step-by-step**:
 
-- `process_single_frame()` - Complete frame analysis
-- `preprocess_frame()` - Frame preparation
-- `postprocess_results()` - Result formatting
+1. [ ] Create `face_detection_service/api/routes.py`
+2. [ ] Create `register_routes(app)` function
+3. [ ] Copy each route function from `face_detection.py`
+4. [ ] Remove business logic from routes - delegate to processors
+5. [ ] Keep only HTTP-specific logic (request validation, response formatting)
+6. [ ] Update routes to use `app.processor_name` for dependencies
+7. [ ] Add proper error handling with HTTP status codes
+8. [ ] Add request validation
+9. [ ] Add response formatting
 
-### **Step 4.3: Extract Video Processing Logic**
+### **Step 3.2: Extract Response Formatting**
 
-**From:** `face_detection.py` lines 432-600 (`process_video` method)
-**To:** `services/video_processor.py`
+**Source**: Scattered response logic in routes
+**Target**: `face_detection_service/api/responses.py`
 
-**Extraction Steps:**
+**What to Extract**:
 
-1. Create `VideoProcessor` class
-2. Extract video opening and validation
-3. Extract frame sampling logic
-4. Extract multi-frame analysis
-5. Extract result aggregation
-6. Extract verdict determination logic
+- [ ] Success response formatting
+- [ ] Error response formatting
+- [ ] JSON serialization logic
+- [ ] HTTP status code handling
 
-**Key Components:**
+**Step-by-step**:
 
-- Video file handling
-- Frame sampling strategy
-- Temporal analysis across frames
-- Final verdict calculation
-- Recommendation generation
+1. [ ] Create `face_detection_service/api/responses.py`
+2. [ ] Create helper functions: `success_response`, `error_response`
+3. [ ] Create specific formatters for each endpoint type
+4. [ ] Add proper HTTP status codes
+5. [ ] Add response headers if needed
+6. [ ] Update routes to use response formatters
 
-### **Step 4.4: Create Main Detection Service**
+### **Step 3.3: Add New Recording Endpoints**
 
-**From:** `face_detection.py` `FaceDetectionService` class
-**To:** `services/detection_service.py`
+**Target**: `face_detection_service/api/routes.py` (additional routes)
 
-**Extraction Steps:**
+**New Endpoints to Add**:
 
-1. Create new `DetectionService` class as main orchestrator
-2. Move high-level workflow logic
-3. Integrate model manager
-4. Integrate frame and video processors
-5. Add service-level error handling and logging
+- [ ] `/recording/start` - Start recording session
+- [ ] `/recording/<session_id>/validate` - Validate recording
+- [ ] Enhanced `/analyze-frame` with live feedback
 
-**Key Responsibilities:**
+**Step-by-step**:
 
-- Coordinate all models and processors
-- Handle business logic
-- Manage service lifecycle
-- Provide clean interface to API layer
+1. [ ] Add recording session management
+2. [ ] Create recording validation endpoint
+3. [ ] Enhance existing `/analyze-frame` for real-time feedback
+4. [ ] Add proper request validation for new endpoints
+5. [ ] Add response formatting for new endpoints
 
----
+## 🔧 **Phase 4: Extract Utilities (Day 8)**
 
-## 🌐 **Phase 5: API Layer Extraction**
+### **Step 4.1: Extract Metrics Management**
 
-### **Step 5.1: Extract Flask Routes**
+**Source**: `face_detection.py` lines 97-107, 682-720
+**Target**: `face_detection_service/utils/metrics.py`
 
-**From:** `face_detection.py` lines 602-876 (Flask app and routes)
-**To:** `api/routes.py`
+**What to Extract**:
 
-**Routes to Extract:**
+- [ ] Global metrics dictionary (lines ~97-107)
+- [ ] `update_metrics` function (lines ~682-700)
+- [ ] Metrics calculation logic
+- [ ] Thread safety locks
 
-1. `/health` endpoint → Clean health checking
-2. `/detect/capabilities` endpoint → Service capabilities
-3. `/metrics` endpoint → Performance metrics
-4. `/detect` endpoint → Video processing
-5. `/analyze-frame` endpoint → Single frame analysis
+**Step-by-step**:
 
-**Extraction Steps:**
+1. [ ] Create `face_detection_service/utils/metrics.py`
+2. [ ] Create `MetricsManager` class
+3. [ ] Copy global metrics dictionary → make instance variable
+4. [ ] Copy `update_metrics` function → make instance method
+5. [ ] Add thread safety with locks
+6. [ ] Add metrics export functionality
+7. [ ] Add metrics reset functionality
 
-1. Create route functions without Flask app instance
-2. Extract request validation logic
-3. Extract response formatting
-4. Remove business logic (delegate to services)
+### **Step 4.2: Extract Helper Functions**
 
-### **Step 5.2: Create Request Validators**
+**Source**: Scattered utility functions
+**Target**: `face_detection_service/utils/helpers.py`
 
-**To:** `api/validators.py`
+**What to Extract**:
 
-**Validation Logic to Extract:**
+- [ ] Image encoding/decoding functions
+- [ ] File handling utilities
+- [ ] Validation functions
+- [ ] Common calculations
 
-- File upload validation
-- Request parameter validation
-- Content type checking
-- File size limits
-- Format validation
+**Step-by-step**:
 
-### **Step 5.3: Create Response Formatters**
+1. [ ] Create `face_detection_service/utils/helpers.py`
+2. [ ] Identify all utility functions in `face_detection.py`
+3. [ ] Group related functions
+4. [ ] Copy functions and add proper error handling
+5. [ ] Add comprehensive docstrings
 
-**To:** `api/responses.py`
+## 🏗️ **Phase 5: Update Main Application (Day 9)**
 
-**Response Logic to Extract:**
+### **Step 5.1: Create New Main Application**
 
-- Success response formatting
-- Error response formatting
-- Result serialization
-- Metrics formatting
+**Target**: `face_detection_service/app.py`
 
-### **Step 5.4: Create API Middleware**
+**What to Create**:
 
-**To:** `api/middleware.py`
+- [ ] Flask app factory function
+- [ ] Dependency injection setup
+- [ ] Service initialization
+- [ ] Route registration
 
-**Middleware to Extract:**
+**Step-by-step**:
 
-- CORS handling
-- Error handling
-- Request logging
-- Performance timing
+1. [ ] Create `face_detection_service/app.py`
+2. [ ] Create `create_app()` function
+3. [ ] Initialize all processors in correct order
+4. [ ] Inject dependencies into Flask app
+5. [ ] Register routes from `api.routes`
+6. [ ] Add global error handlers
+7. [ ] Add CORS configuration
+8. [ ] Add logging configuration
 
-### **Step 5.5: Create Main Flask App**
+### **Step 5.2: Update Original face_detection.py**
 
-**To:** `app.py`
+**What to Remove from face_detection.py**:
 
-**App Setup to Extract:**
+- [ ] All dataclass definitions (moved to core/data_classes.py)
+- [ ] All processor methods (moved to processors/)
+- [ ] All Flask routes (moved to api/routes.py)
+- [ ] All utility functions (moved to utils/)
+- [ ] Global variables and metrics (moved to appropriate modules)
 
-- Flask app initialization
-- Blueprint registration
-- Global error handlers
-- Service initialization
+**What to Keep in face_detection.py**:
 
----
+- [ ] Main execution block (`if __name__ == '__main__'`)
+- [ ] Flask app creation (update to use new structure)
 
-## 📊 **Phase 6: Utilities and Monitoring**
+**Step-by-step**:
 
-### **Step 6.1: Extract Metrics Management**
+1. [ ] Import new modules at top of `face_detection.py`
+2. [ ] Remove extracted code sections
+3. [ ] Update main execution block to use `create_app()`
+4. [ ] Test that application still works
+5. [ ] Clean up unused imports
 
-**From:** `face_detection.py` lines 97-107, 850-876
-**To:** `utils/metrics.py`
+### **Step 5.3: Update Container Entry Point**
 
-**Metrics Logic to Extract:**
+**Target**: Update `Containerfile` if needed
 
-1. Global metrics dictionary and locks
-2. `update_metrics` function
-3. Performance tracking
-4. Statistics calculation
-5. Thread-safe metrics updates
+**What to Check**:
 
-### **Step 6.2: Extract Helper Functions**
+- [ ] Entry point still points to correct file
+- [ ] All new files are copied into container
+- [ ] Python path includes new modules
+- [ ] Dependencies are still installed
 
-**From:** Scattered utility functions throughout files
-**To:** `utils/helpers.py`
+**Step-by-step**:
 
-**Helper Functions to Extract:**
+1. [ ] Review `Containerfile` for any needed updates
+2. [ ] Test container build: `podman build -t test-opencv .`
+3. [ ] Test container run: `podman run -p 8002:8002 test-opencv`
+4. [ ] Verify all endpoints work in container
 
-- Frame conversion utilities
-- Image processing helpers
-- Data validation functions
-- Common calculations
+## 🧪 **Phase 6: Add Testing (Day 10)**
 
-### **Step 6.3: Extract Video Utilities**
+### **Step 6.1: Create Unit Tests**
 
-**From:** Video processing logic in `face_detection.py`
-**To:** `utils/video_utils.py`
+**Target**: `face_detection_service/tests/unit/`
 
-**Video Utilities to Extract:**
+**Tests to Create**:
 
-- Video file validation
-- Frame extraction logic
-- Video metadata reading
-- Temporary file handling
+- [ ] `test_face_detector.py` - Test FaceDetector class
+- [ ] `test_liveness_checker.py` - Test LivenessChecker class
+- [ ] `test_quality_analyzer.py` - Test QualityAnalyzer class
+- [ ] `test_video_processor.py` - Test VideoProcessor class
+- [ ] `test_motion_analyzer.py` - Test MotionAnalyzer class
 
-### **Step 6.4: Extract Health Check Logic**
+**Step-by-step for each test file**:
 
-**From:** `healthcheck.py`
-**To:** `monitoring/health_checker.py`
+1. [ ] Create test file
+2. [ ] Add imports and setup
+3. [ ] Create test fixtures (sample images/videos)
+4. [ ] Test normal operation
+5. [ ] Test error conditions
+6. [ ] Test edge cases
+7. [ ] Add performance tests if needed
 
-**Health Check Components to Refactor:**
+### **Step 6.2: Create Integration Tests**
 
-1. Extract `check_http_endpoint` → API health check
-2. Extract `check_service_capabilities` → Model capability check
-3. Extract `check_basic_functionality` → Functional testing
-4. Extract `check_performance_metrics` → Performance validation
-5. Extract `run_comprehensive_health_check` → Main health check orchestrator
+**Target**: `face_detection_service/tests/integration/`
 
-**Refactoring Steps:**
+**Tests to Create**:
 
-- Remove Flask app dependencies from health checks
-- Create service-agnostic health checking
-- Integrate with new model and service structure
-- Add configuration-driven health checks
+- [ ] `test_full_pipeline.py` - End-to-end video processing
+- [ ] `test_api_endpoints.py` - API endpoint testing
+- [ ] `test_recording_workflow.py` - Recording session workflow
 
-### **Step 6.5: Extract Performance Monitoring**
+**Step-by-step**:
 
-**From:** Metrics and performance logic scattered throughout
-**To:** `monitoring/performance_monitor.py`
+1. [ ] Create integration test files
+2. [ ] Use real test images/videos in fixtures
+3. [ ] Test complete workflows
+4. [ ] Test error scenarios
+5. [ ] Test performance under load
 
-**Performance Monitoring to Extract:**
+### **Step 6.3: Create Test Fixtures**
 
-- Request timing
-- Model performance tracking
-- Resource usage monitoring
-- Alert generation
+**Target**: `face_detection_service/tests/fixtures/`
 
----
+**Fixtures to Create**:
 
-## 🧪 **Phase 7: Testing Infrastructure**
+- [ ] Sample face images (good quality)
+- [ ] Sample face images (poor quality)
+- [ ] Sample videos (various qualities)
+- [ ] Mock data for testing
 
-### **Step 7.1: Extract Integration Examples**
+**Step-by-step**:
 
-**From:** `integration_example.py`
-**To:** `tests/integration/test_full_pipeline.py`
+1. [ ] Create or find test images/videos
+2. [ ] Ensure test data covers various scenarios
+3. [ ] Document what each fixture tests
+4. [ ] Keep fixture sizes small
 
-**Integration Tests to Refactor:**
+## 🔍 **Phase 7: Validation and Cleanup (Day 11-12)**
 
-1. `demo_complete_verification_flow` → Full pipeline test
-2. `demo_realtime_feedback` → Real-time processing test
-3. `run_performance_test` → Performance benchmarking
-4. `run_integration_tests` → Comprehensive testing
+### **Step 7.1: Functional Validation**
 
-**Refactoring Steps:**
+**What to Test**:
 
-- Remove external service dependencies from core tests
-- Create mock-friendly test structure
-- Add proper test fixtures
-- Create reusable test utilities
+- [ ] All original endpoints work identically
+- [ ] Response formats unchanged
+- [ ] Performance characteristics maintained
+- [ ] Error handling preserved
 
-### **Step 7.2: Extract Model Testing**
+**Step-by-step**:
 
-**From:** `test_models.py`
-**To:** `tests/unit/test_models/`
+1. [ ] Run comprehensive API tests
+2. [ ] Compare responses with baseline
+3. [ ] Performance benchmark comparison
+4. [ ] Error scenario testing
+5. [ ] Load testing if applicable
 
-**Model Tests to Extract:**
+### **Step 7.2: Code Quality Validation**
 
-1. `download_and_prepare_models` → Model setup testing
-2. `run_comprehensive_tests` → Individual model testing
-3. Performance benchmarking → Model performance tests
-4. Model validation → Model accuracy tests
+**What to Check**:
 
-**Test Files to Create:**
+- [ ] All files under 200 lines
+- [ ] No code duplication
+- [ ] Proper error handling
+- [ ] Comprehensive logging
+- [ ] Good test coverage
 
-- `test_face_detection.py` - MediaPipe testing
-- `test_liveness.py` - Anti-spoofing testing
-- `test_quality.py` - Quality analysis testing
-- `test_motion.py` - Motion analysis testing
+**Step-by-step**:
 
-### **Step 7.3: Create Unit Tests for Services**
+1. [ ] Run code quality tools
+2. [ ] Check test coverage
+3. [ ] Review all error handling
+4. [ ] Check logging consistency
+5. [ ] Review documentation
 
-**To:** `tests/unit/test_services/`
+### **Step 7.3: Final Cleanup**
 
-**Service Tests to Create:**
+**What to Clean Up**:
 
-- `test_detection_service.py` - Main service testing
-- `test_video_processor.py` - Video processing testing
-- `test_frame_processor.py` - Frame processing testing
-- `test_model_manager.py` - Model management testing
-
-### **Step 7.4: Create API Tests**
-
-**To:** `tests/unit/test_api/`
-
-**API Tests to Create:**
-
-- `test_routes.py` - Route testing
-- `test_validators.py` - Validation testing
-- `test_responses.py` - Response formatting testing
-- `test_middleware.py` - Middleware testing
-
-### **Step 7.5: Create Test Configuration**
-
-**To:** `tests/conftest.py`
-
-**Test Configuration to Include:**
-
-- Pytest fixtures
-- Test data setup
-- Mock configurations
-- Test utilities
-
----
-
-## 🔄 **Phase 8: Migration Strategy**
-
-### **Step 8.1: Incremental Migration Approach**
-
-**Week 1:** Foundation
-
-1. Create directory structure
-2. Extract data structures and constants
-3. Create base interfaces
-4. Set up testing infrastructure
-
-**Week 2:** Model Layer
-
-1. Extract MediaPipe face detection
-2. Extract liveness detection
-3. Extract quality analysis
-4. Extract motion analysis
-
-**Week 3:** Service Layer
-
-1. Create model manager
-2. Extract frame processor
-3. Extract video processor
-4. Create main detection service
-
-**Week 4:** API Layer
-
-1. Extract Flask routes
-2. Create validators and responses
-3. Create middleware
-4. Update main app
-
-**Week 5:** Utilities and Testing
-
-1. Extract utilities and monitoring
-2. Migrate health checks
-3. Create comprehensive tests
-4. Performance validation
-
-**Week 6:** Integration and Cleanup
-
-1. Integration testing
-2. Performance benchmarking
-3. Documentation updates
-4. Legacy code removal
-
-### **Step 8.2: Validation Strategy**
-
-**Functional Validation:**
-
-- All existing endpoints continue to work
-- Response formats remain unchanged
-- Performance characteristics maintained
-- Error handling preserved
-
-**Quality Validation:**
-
-- Unit test coverage > 80%
-- Integration tests pass
-- Performance tests meet benchmarks
-- Code quality metrics improved
-
-### **Step 8.3: Deployment Strategy**
-
-**Container Updates:**
-
-1. Update `Containerfile` imports
-2. Update Python path configurations
-3. Update entry point scripts
-4. Validate container build process
-
-**Environment Variables:**
-
-- No breaking changes to environment variables
-- Maintain backward compatibility
-- Add new configuration options
-
----
-
-## 📋 **Phase 9: File-by-File Migration Checklist**
-
-### **face_detection.py → Multiple Files**
-
-**Lines 1-34:** Imports and Setup
-
-- [ ] Extract to appropriate modules
 - [ ] Remove unused imports
-- [ ] Add new import structure
+- [ ] Remove commented code
+- [ ] Clean up temporary files
+- [ ] Update documentation
+- [ ] Update README if needed
 
-**Lines 35-95:** Data Structures
+**Step-by-step**:
 
-- [ ] Move to `core/data_structures.py`
-- [ ] Update imports throughout codebase
-- [ ] Add validation methods
+1. [ ] Clean up all extracted files
+2. [ ] Remove debugging code
+3. [ ] Update import statements
+4. [ ] Review and clean comments
+5. [ ] Update any relevant documentation
 
-**Lines 96-107:** Global Variables and Metrics
+## 📋 **Post-Refactoring Checklist**
 
-- [ ] Move metrics to `utils/metrics.py`
-- [ ] Move model globals to `services/model_manager.py`
-- [ ] Create proper initialization
+### **Step 8.1: Deployment Validation**
 
-**Lines 108-190:** MediaPipe Face Detection
+- [ ] Build container successfully
+- [ ] Deploy to test environment
+- [ ] Run all API tests in test environment
+- [ ] Performance testing
+- [ ] Load testing if applicable
 
-- [ ] Extract to `models/face_detection/mediapipe_detector.py`
-- [ ] Implement `FaceDetectionModel` interface
-- [ ] Add comprehensive error handling
+### **Step 8.2: Documentation Updates**
 
-**Lines 192-285:** Silent Face Anti-Spoofing
+- [ ] Update API documentation
+- [ ] Update development setup instructions
+- [ ] Update deployment instructions
+- [ ] Create architecture documentation
+- [ ] Update troubleshooting guides
 
-- [ ] Extract to `models/liveness/silent_antispoofing.py`
-- [ ] Implement `LivenessModel` interface
-- [ ] Handle InsightFace integration
+### **Step 8.3: Monitoring Setup**
 
-**Lines 287-337:** Temporal Liveness Analysis (Commented)
+- [ ] Verify health checks work
+- [ ] Verify metrics collection works
+- [ ] Set up alerts if needed
+- [ ] Monitor performance after deployment
+- [ ] Monitor error rates
 
-- [ ] Clean up or implement in `models/liveness/temporal_analysis.py`
-- [ ] Complete implementation if needed
+## 🚨 **Rollback Plan**
 
-**Lines 338-385:** Quality Analysis
+### **If Issues Arise:**
 
-- [ ] Extract to `models/quality/image_quality.py`
-- [ ] Implement `QualityModel` interface
-- [ ] Add additional quality metrics
+1. [ ] Switch back to backup branch
+2. [ ] Identify specific issue
+3. [ ] Fix in refactoring branch
+4. [ ] Re-test specific component
+5. [ ] Re-deploy when fixed
 
-**Lines 387-430:** Motion Analysis
+### **Risk Mitigation:**
 
-- [ ] Extract to `models/motion/motion_analyzer.py`
-- [ ] Implement `MotionModel` interface
-- [ ] Enhance motion detection
+- [ ] Keep backup branch until fully validated
+- [ ] Test each phase thoroughly before proceeding
+- [ ] Have monitoring in place to catch issues quickly
+- [ ] Document any issues and resolutions
 
-**Lines 432-600:** Video Processing
-
-- [ ] Extract main logic to `services/video_processor.py`
-- [ ] Extract frame sampling to `services/frame_processor.py`
-- [ ] Create proper orchestration
-
-**Lines 602-680:** Service Class
-
-- [ ] Refactor to `services/detection_service.py`
-- [ ] Remove model loading (delegate to model_manager)
-- [ ] Focus on business logic orchestration
-
-**Lines 682-720:** Metrics Functions
-
-- [ ] Move to `utils/metrics.py`
-- [ ] Add thread safety
-- [ ] Create metrics interface
-
-**Lines 721-876:** Flask Routes
-
-- [ ] Extract to `api/routes.py`
-- [ ] Create proper validation
-- [ ] Add middleware support
-
-### **healthcheck.py → monitoring/health_checker.py**
-
-**Complete Migration:**
-
-- [ ] Extract all health check functions
-- [ ] Remove Flask dependencies
-- [ ] Integrate with new service structure
-- [ ] Add configuration-driven checks
-
-### **integration_example.py → tests/integration/**
-
-**Migration Strategy:**
-
-- [ ] Extract test utilities
-- [ ] Convert examples to proper tests
-- [ ] Add test fixtures
-- [ ] Create reusable test components
-
-### **api_integration.py → External Module**
-
-**Assessment:**
-
-- [ ] Keep as external integration helper
-- [ ] Update to work with new API structure
-- [ ] Add documentation for external usage
-
-### **test_models.py → tests/unit/test_models/**
-
-**Migration Strategy:**
-
-- [ ] Split into individual model tests
-- [ ] Add proper test fixtures
-- [ ] Create comprehensive test coverage
-
----
-
-## 🎯 **Success Criteria**
+## ✅ **Success Criteria**
 
 ### **Functional Requirements:**
 
 - [ ] All existing API endpoints work identically
 - [ ] Response formats unchanged
-- [ ] Performance characteristics maintained
+- [ ] Performance within 5% of original
 - [ ] Error handling preserved
-- [ ] Logging output consistent
+- [ ] New real-time features work correctly
 
 ### **Quality Requirements:**
 
 - [ ] Unit test coverage > 80%
 - [ ] Integration tests cover main workflows
-- [ ] Code duplication < 5%
-- [ ] Cyclomatic complexity reduced by 50%
-- [ ] Function/method length < 50 lines average
+- [ ] All files under 200 lines
+- [ ] No code duplication
+- [ ] Clear separation of concerns
 
 ### **Maintainability Requirements:**
 
 - [ ] Each module has single responsibility
 - [ ] Dependencies clearly defined
-- [ ] Interfaces properly abstracted
-- [ ] Configuration externalized
-- [ ] Documentation updated
+- [ ] Easy to add new features
+- [ ] Good documentation
+- [ ] Easy to debug issues
 
-### **Performance Requirements:**
-
-- [ ] Model loading time unchanged
-- [ ] Processing time within 5% of original
-- [ ] Memory usage not increased
-- [ ] Concurrent request handling maintained
-
----
-
-## 🚀 **Post-Refactoring Benefits**
-
-### **Development Benefits:**
-
-- Independent model development
-- Easy A/B testing of different models
-- Simplified unit testing
-- Clear debugging paths
-- Modular feature development
-
-### **Operational Benefits:**
-
-- Better error isolation
-- Cleaner logging and monitoring
-- Easier performance optimization
-- Simplified deployment and scaling
-- Better resource management
-
-### **Maintenance Benefits:**
-
-- Easier bug fixes
-- Simplified code reviews
-- Clear ownership boundaries
-- Better documentation structure
-- Reduced cognitive load
-
----
-
-## ⚠️ **Risk Mitigation**
-
-### **Technical Risks:**
-
-- **Import Dependencies**: Careful mapping of all imports during extraction
-- **State Management**: Proper handling of global state and model instances
-- **Performance Impact**: Continuous benchmarking during refactoring
-- **Thread Safety**: Ensuring thread safety in multi-threaded Flask environment
-
-### **Migration Risks:**
-
-- **Breaking Changes**: Comprehensive testing at each phase
-- **Data Loss**: Backup all configurations and test data
-- **Integration Issues**: Incremental testing with existing components
-- **Performance Regression**: Before/after performance comparison
-
-### **Operational Risks:**
-
-- **Deployment Issues**: Staged deployment with rollback capability
-- **Configuration Drift**: Maintain configuration compatibility
-- **Monitoring Gaps**: Ensure monitoring continues to work
-- **Documentation Lag**: Update documentation in parallel
-
-This comprehensive refactoring plan provides a systematic approach to transforming the monolithic OpenCV service into a clean, maintainable, and testable architecture while minimizing risks and ensuring backward compatibility.
+This detailed plan provides step-by-step instructions for safely refactoring the monolithic OpenCV service into a clean, maintainable architecture while preserving all existing functionality and adding new real-time recording capabilities.
