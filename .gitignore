@@ -63,6 +63,10 @@ test-logs
 # python deps venv
 opencv-container-dnf-packages-build
 pip-venv-cache
-face_detection_service-bak
+
+# backup files and folders
+*-bak
+*.bak
+
 # local
 *TODO*
